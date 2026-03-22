@@ -17,8 +17,13 @@ import path from 'path';
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 import bcrypt from 'bcryptjs';
+import { createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { initializeDatabase, getDb } from '../db/schema';
+
+function hashFanPassword(pw: string) {
+  return createHash('sha256').update(pw + 'fan_salt').digest('hex');
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type P = any;
@@ -66,17 +71,20 @@ async function seed() {
     console.log(`  ✓ Creator portal: ${portalEmail}`);
   }
 
-  /* ── Fan user ────────────────────────────────────────────────────────────── */
+  /* ── Fan user (fan_users table — separate from main auth) ───────────────── */
   console.log('\n── Fan Account ─────────────────────────────────────────────');
   const fanEmail = 'fan@demo.falak.io';
-  const existingFan = db.prepare("SELECT id FROM users WHERE email = ? AND role = 'fan'").get(fanEmail as P);
+  const existingFan = db.prepare('SELECT id FROM fan_users WHERE email = ?').get(fanEmail as P);
   if (!existingFan) {
     const fanId = uuidv4();
-    db.prepare(`INSERT INTO users (id, email, password_hash, role, display_name, status) VALUES (?, ?, ?, 'fan', ?, 'active')`)
-      .run(fanId as P, fanEmail as P, DEMO_PASS_HASH as P, 'Ahmed Nasser (Fan)' as P);
-    console.log(`  + Fan: ${fanEmail}`);
+    db.prepare(`INSERT INTO fan_users (id, email, password, name, username, bio, country) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(fanId as P, fanEmail as P, hashFanPassword('Falak@Demo2026') as P,
+        'Ahmed Nasser' as P, 'ahmed_fan' as P,
+        'Music & lifestyle enthusiast from Cairo 🎵 Love discovering new creators!' as P,
+        'Egypt' as P);
+    console.log(`  + Fan (fan_users): ${fanEmail}`);
   } else {
-    console.log(`  ✓ Fan: ${fanEmail}`);
+    console.log(`  ✓ Fan (fan_users): ${fanEmail}`);
   }
 
   /* ── Influencers ─────────────────────────────────────────────────────────── */
@@ -399,6 +407,37 @@ async function seed() {
       db.prepare(`UPDATE influencers SET trust_tier = ? WHERE id = ?`).run(inf.trust_tier as P, inf.id as P);
     }
   } catch { /* column may not exist yet */ }
+
+  /* ── Fan Pricing ─────────────────────────────────────────────────────────── */
+  console.log('\n── Fan Marketplace Pricing ─────────────────────────────────');
+
+  const fanPricing = [
+    { idx: 0, shoutout: 800,  video: 1500, photo: 600,  meetup: null, live: 1200, bio: 'Lifestyle & fashion creator from Cairo 🌟 Book a personalised shoutout or video message for you or your loved ones!' },
+    { idx: 1, shoutout: 700,  video: 1200, photo: null,  meetup: null, live: 1000, bio: 'Comedy & entertainment creator 😂 Book a funny personalised video — birthdays, shoutouts, challenges!' },
+    { idx: 2, shoutout: 500,  video: 900,  photo: 450,  meetup: null, live: null, bio: 'Beauty & skincare creator from Alex 💄 Book a personalised skincare advice video or a glam shoutout!' },
+    { idx: 3, shoutout: 400,  video: 800,  photo: null,  meetup: 3000, live: null, bio: 'Fitness & sports creator 💪 Book a personalised workout tip video or a motivational shoutout!' },
+    { idx: 4, shoutout: 450,  video: 850,  photo: 400,  meetup: null, live: null, bio: 'Food & recipe creator 🍽️ Book a personalised recipe video or a special shoutout for foodies!' },
+    { idx: 5, shoutout: 200,  video: 400,  photo: 180,  meetup: null, live: null, bio: 'Tech reviewer & gadget nerd 📱 Book a personalised tech advice video or shoutout!' },
+  ];
+
+  const updateFanPricing = db.prepare(`
+    UPDATE influencers SET
+      fan_shoutout_price = ?, fan_video_price = ?, fan_photo_price = ?,
+      fan_meetup_price = ?, fan_live_chat_price = ?,
+      fan_bio = ?, fan_requests_enabled = 1, fan_response_time = '24h',
+      currency = 'EGP'
+    WHERE id = ?
+  `);
+
+  for (const p of fanPricing) {
+    const inf = influencers[p.idx];
+    updateFanPricing.run(
+      p.shoutout as P, p.video as P, (p.photo ?? null) as P,
+      (p.meetup ?? null) as P, (p.live ?? null) as P,
+      p.bio as P, inf.id as P
+    );
+    console.log(`  + Fan pricing set for ${inf.name_english} (from EGP ${p.shoutout})`);
+  }
 
   /* ── Campaigns ───────────────────────────────────────────────────────────── */
   console.log('\n── Campaigns ───────────────────────────────────────────────');

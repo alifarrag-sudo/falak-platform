@@ -21,7 +21,7 @@ import { cn } from '../../utils/helpers';
 
 const PLATFORMS = ['Instagram', 'TikTok', 'Snapchat', 'Facebook', 'YouTube', 'Twitter'];
 const CONTENT_TYPES = ['Post', 'Story', 'Reel', 'Video', 'Carousel', 'Live'];
-const CURRENCIES = ['SAR', 'AED', 'USD', 'EGP', 'KWD', 'BHD'];
+const CURRENCIES = ['EGP', 'SAR', 'AED', 'USD', 'KWD', 'BHD'];
 
 interface SendOfferModalProps {
   open: boolean;
@@ -53,7 +53,7 @@ const DEFAULT_FORM: OfferForm = {
   brief: '',
   deliverables: '',
   rate: '',
-  currency: 'SAR',
+  currency: 'EGP',
   deadline: '',
   agency_notes: '',
 };
