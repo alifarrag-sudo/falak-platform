@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, CheckCircle, XCircle, ExternalLink, Send, Upload, Link2,
-  FileText, Clock, AlertTriangle, RefreshCw,
+  FileText, Clock, AlertTriangle, RefreshCw, Download,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { portalGetOffer, portalRespondToOffer, portalSubmitDeliverable } from '../../utils/api';
@@ -176,6 +176,20 @@ export default function PortalOfferPage() {
     enabled: !!id,
   });
 
+  const handleDownloadBrief = async () => {
+    try {
+      const res = await fetch(`/api/pdf/offer/${id}`, { method: 'POST' });
+      if (!res.ok) { toast.error('Could not generate brief'); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `brief-${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { toast.error('Download failed'); }
+  };
+
   const respondMutation = useMutation({
     mutationFn: ({ decision, notes }: { decision: 'accepted' | 'declined'; notes?: string }) =>
       portalRespondToOffer(id!, decision, notes),
@@ -270,9 +284,19 @@ export default function PortalOfferPage() {
             <h1 className="text-xl font-bold text-white mb-1">{String(offer.title)}</h1>
             {offer.campaign_name && <p className="text-gray-500 text-sm">{String(offer.campaign_name)}</p>}
           </div>
-          <span className={cn('text-sm font-semibold capitalize shrink-0', STATUS_COLORS[status] || 'text-gray-400')}>
-            {status.replace('_', ' ')}
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleDownloadBrief}
+              className="btn-secondary btn-sm"
+              title="Download brief pack as PDF"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Brief PDF
+            </button>
+            <span className={cn('text-sm font-semibold capitalize', STATUS_COLORS[status] || 'text-gray-400')}>
+              {status.replace('_', ' ')}
+            </span>
+          </div>
         </div>
 
         {/* Rate display — prominent */}

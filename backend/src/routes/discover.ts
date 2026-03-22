@@ -19,6 +19,7 @@ function searchInternalDb(q: string, platform: string, limit: number, filters: R
       SELECT i.* FROM influencers i
       JOIN influencers_fts fts ON i.rowid = fts.rowid
       WHERE influencers_fts MATCH ? AND i.is_archived = 0
+      GROUP BY i.id
       ORDER BY i.ig_followers DESC LIMIT ?
     `).all(term as P, limit as P) as any[];
   } catch {
