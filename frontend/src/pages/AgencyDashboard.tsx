@@ -1,13 +1,13 @@
 /**
  * Agency Home Dashboard — KPI overview, recent campaigns, offer status breakdown, quick actions.
  */
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Users, Megaphone, FileText, Compass, Upload, DollarSign,
   TrendingUp, Clock, CheckCircle, XCircle, ArrowRight,
-  LayoutDashboard, AlertCircle, Handshake, CalendarDays,
+  LayoutDashboard, AlertCircle, Handshake, CalendarDays, X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { getCampaigns, getOfferStats, getPaymentSummary, getInfluencers, getOffers } from '../utils/api';
@@ -56,8 +56,17 @@ const CAMPAIGN_STATUS_COLORS: Record<string, string> = {
   paused:    'bg-amber-900/40 text-amber-300 border border-amber-800/40',
 };
 
+const ONBOARDING_DISMISSED_KEY = 'falak_onboarding_dismissed';
+
 export default function AgencyDashboard() {
   const { user } = useAuth();
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem(ONBOARDING_DISMISSED_KEY) === 'true') {
+      setOnboardingDismissed(true);
+    }
+  }, []);
 
   const { data: influencerData } = useQuery({
     queryKey: ['agency-dash-influencers'],
@@ -85,6 +94,16 @@ export default function AgencyDashboard() {
     staleTime: 60000,
   });
 
+  const { data: onboardingInfluencerData } = useQuery({
+    queryKey: ['influencers', { limit: 1 }],
+    queryFn: () => getInfluencers({ page: 1, limit: 1 }),
+  });
+
+  const { data: onboardingCampaigns = [] } = useQuery<Campaign[]>({
+    queryKey: ['campaigns'],
+    queryFn: getCampaigns,
+  });
+
   // Computed values
   const rosterSize     = influencerData?.pagination?.total ?? 0;
   const activeCampaigns = campaigns.filter((c: Campaign) => c.status === 'active').length;
@@ -97,6 +116,23 @@ export default function AgencyDashboard() {
   const currency = 'SAR';
 
   const recentCampaigns = campaigns.slice(0, 5);
+
+  const onboardingInfluencerCount = onboardingInfluencerData?.pagination?.total ?? 0;
+  const onboardingCampaignCount = onboardingCampaigns.length;
+  const showOnboarding =
+    !onboardingDismissed &&
+    onboardingInfluencerCount < 5 &&
+    onboardingCampaignCount < 2;
+
+  const onboardingItems = [
+    { label: 'Add your first influencer', link: '/influencers', done: onboardingInfluencerCount >= 1 },
+    { label: 'Create your first campaign', link: '/campaigns',  done: onboardingCampaignCount >= 1 },
+    { label: 'Send your first offer',      link: '/offers',     done: (offerStats ? Object.values(offerStats).reduce((a, b) => a + b, 0) : 0) >= 1 },
+    { label: 'Connect social accounts',    link: '/settings',   done: false },
+    { label: 'Try Discover',               link: '/discover',   done: false },
+  ];
+
+  const onboardingComplete = onboardingItems.filter(i => i.done).length;
 
   const staleOffers = useMemo(() => {
     const offers: Record<string, unknown>[] = sentOffersData?.data || [];
@@ -113,6 +149,11 @@ export default function AgencyDashboard() {
       .filter(([, v]) => v > 0)
       .sort(([, a], [, b]) => b - a);
   }, [offerStats]);
+
+  const handleDismissOnboarding = () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, 'true');
+    setOnboardingDismissed(true);
+  };
 
   const quickActions = [
     { to: '/influencers', icon: Users,          label: 'Influencers',  desc: 'Browse & manage roster' },
@@ -134,6 +175,57 @@ export default function AgencyDashboard() {
         </h1>
         <p className="text-sm text-gray-500 mt-1">Here's your agency overview for today.</p>
       </div>
+
+      {/* Onboarding checklist */}
+      {showOnboarding && (
+        <div className="card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-white">Getting started</p>
+              <p className="text-xs text-gray-500 mt-0.5">{onboardingComplete}/5 steps complete</p>
+            </div>
+            <button
+              onClick={handleDismissOnboarding}
+              className="text-gray-600 hover:text-gray-300 transition-colors"
+              aria-label="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {/* Progress bar */}
+          <div className="h-1.5 bg-surface-overlay rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 rounded-full transition-all"
+              style={{ width: `${(onboardingComplete / onboardingItems.length) * 100}%` }}
+            />
+          </div>
+          {/* Checklist items */}
+          <div className="space-y-1.5 pt-1">
+            {onboardingItems.map(item => (
+              <Link
+                key={item.link}
+                to={item.link}
+                className="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-surface-overlay transition-colors group"
+              >
+                <div className={cn(
+                  'w-5 h-5 rounded-full border flex items-center justify-center shrink-0',
+                  item.done
+                    ? 'bg-emerald-500 border-emerald-500'
+                    : 'border-surface-border bg-surface-overlay'
+                )}>
+                  {item.done && <CheckCircle className="w-3 h-3 text-white" />}
+                </div>
+                <span className={cn(
+                  'text-sm',
+                  item.done ? 'line-through text-gray-500' : 'text-gray-300 group-hover:text-white'
+                )}>
+                  {item.label}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

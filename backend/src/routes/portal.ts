@@ -12,6 +12,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDb } from '../db/schema';
 import { createNotification } from './notifications';
+import { sendFanRequestFulfilledEmail, sendDeliverableSubmittedEmail, sendDeliverableReviewedEmail } from '../services/emailService';
 import fetch from 'node-fetch';
 
 const router = Router();
@@ -606,6 +607,22 @@ router.post('/offers/:id/deliverables', requirePortalAuth, (req: AuthRequest, re
   db.prepare(`UPDATE portal_offers SET status = 'submitted', updated_at = datetime('now') WHERE id = ?`)
     .run(offer.id as P);
 
+  // Notify agency that a deliverable was submitted
+  try {
+    if (offer.created_by) {
+      const agencyUser = db.prepare('SELECT email, name FROM users WHERE id = ?')
+        .get(offer.created_by as P) as { email: string; name: string } | undefined;
+      if (agencyUser?.email) {
+        sendDeliverableSubmittedEmail(agencyUser.email, {
+          influencerName: (req.portalUser!.name as string) || 'Influencer',
+          offerTitle: String(offer.title || 'Untitled offer'),
+          contentUrl: content_url || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/offers`,
+          offerId: String(offer.id),
+        }).catch(console.error);
+      }
+    }
+  } catch { /* non-critical */ }
+
   const deliverable = db.prepare('SELECT * FROM portal_deliverables WHERE id = ?').get(id);
   res.status(201).json(deliverable);
 });
@@ -830,6 +847,8 @@ router.put('/fan-requests/:id/respond', requirePortalAuth, (req: AuthRequest, re
     updates.responded_at = updates.responded_at || request.responded_at || new Date().toISOString();
     if (delivery_url) updates.delivery_url = delivery_url;
     if (delivery_note) updates.delivery_note = delivery_note;
+    // Generate a public share token so the fan can share their delivery page
+    if (!request.share_token) updates.share_token = uuidv4().replace(/-/g, '');
   }
   if (decision === 'declined') updates.responded_at = new Date().toISOString();
 
@@ -840,7 +859,30 @@ router.put('/fan-requests/:id/respond', requirePortalAuth, (req: AuthRequest, re
     SELECT fr.*, fu.name AS fan_name, fu.email AS fan_email, fu.username AS fan_username
     FROM fan_requests fr JOIN fan_users fu ON fu.id = fr.fan_user_id
     WHERE fr.id = ?
-  `).get(req.params.id as P);
+  `).get(req.params.id as P) as Record<string, unknown> | undefined;
+
+  // Email fan when request is fulfilled
+  if (decision === 'fulfilled' && updated?.fan_email) {
+    const influencerName = (req.portalUser!.name as string) || 'Your creator';
+    const shareToken = updated.share_token as string | undefined;
+    const APP_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+    sendFanRequestFulfilledEmail(String(updated.fan_email), {
+      fanName: String(updated.fan_name || updated.fan_username || 'Fan'),
+      influencerName,
+      requestType: String(request.request_type || 'request'),
+      deliveryUrl: delivery_url || undefined,
+      deliveryNote: delivery_note || undefined,
+      sharePageUrl: shareToken ? `${APP_URL}/fan/delivery/${shareToken}` : undefined,
+    }).catch(console.error);
+
+    // Award loyalty points to fan
+    try {
+      db.prepare(`INSERT INTO loyalty_points (id, user_type, user_id, action, points, reference_id, note)
+        VALUES (?, 'fan', ?, 'fan_request_fulfilled', 10, ?, 'Request fulfilled')`)
+        .run(uuidv4() as P, request.fan_user_id as P, request.id as P);
+    } catch { /* non-critical */ }
+  }
+
   res.json(updated);
 });
 

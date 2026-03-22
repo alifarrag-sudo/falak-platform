@@ -262,3 +262,74 @@ export async function sendInviteEmail(to: string, opts: {
     <p style="font-size:12px;color:#444">This invitation expires in 7 days. If you weren't expecting this, you can ignore it.</p>
   `, `${opts.inviterName} invited you to ${FROM_NAME}`));
 }
+
+/** Sent to influencer when their offer is about to expire */
+export async function sendOfferExpiryWarningEmail(to: string, opts: {
+  influencerName: string;
+  offerTitle: string;
+  expiresIn: string;
+  offerId: string;
+}): Promise<void> {
+  await send(to, `⏰ Offer expiring soon: ${opts.offerTitle}`, layout(`
+    <h2>Your offer expires ${opts.expiresIn}!</h2>
+    <p class="light">Hi ${opts.influencerName}, you have a pending collaboration offer that requires your response.</p>
+    <div class="card">
+      <div class="row"><span class="lbl">Offer</span><span class="val">${opts.offerTitle}</span></div>
+      <div class="row"><span class="lbl">Expires</span><span class="val" style="color:#fbbf24">${opts.expiresIn}</span></div>
+    </div>
+    <a href="${APP_URL}/portal/offers" class="btn">Respond Now →</a>
+  `, `Offer expiring: ${opts.offerTitle}`));
+}
+
+/** Sent to agency when an offer auto-expires */
+export async function sendOfferExpiredEmail(to: string, opts: {
+  offerTitle: string;
+  influencerName: string;
+  offerId: string;
+}): Promise<void> {
+  await send(to, `Offer expired: ${opts.offerTitle}`, layout(`
+    <h2>Offer expired — no response received</h2>
+    <p class="light">The offer <strong>${opts.offerTitle}</strong> to <strong>${opts.influencerName}</strong> expired without a response and has been automatically closed.</p>
+    <a href="${APP_URL}/offers/${opts.offerId}" class="btn">View Offer →</a>
+  `, `Offer expired: ${opts.offerTitle}`));
+}
+
+/** Sent when a new message is posted on an offer thread */
+export async function sendNewMessageEmail(to: string, opts: {
+  recipientName: string;
+  senderName: string;
+  offerTitle: string;
+  messagePreview: string;
+  offerId: string;
+  isPortal?: boolean;
+}): Promise<void> {
+  const link = opts.isPortal ? `${APP_URL}/portal/offers/${opts.offerId}` : `${APP_URL}/offers/${opts.offerId}`;
+  await send(to, `New message: ${opts.offerTitle}`, layout(`
+    <h2>New message from ${opts.senderName}</h2>
+    <p class="light">Hi ${opts.recipientName}, you have a new message on the offer <strong>${opts.offerTitle}</strong>.</p>
+    <div class="card">
+      <p style="color:#ccc;font-size:14px;line-height:1.6;font-style:italic">"${opts.messagePreview.slice(0, 200)}${opts.messagePreview.length > 200 ? '…' : ''}"</p>
+    </div>
+    <a href="${link}" class="btn">Reply →</a>
+  `, `New message from ${opts.senderName}`));
+}
+
+/** Sent to fan when their request is fulfilled */
+export async function sendFanRequestFulfilledEmail(to: string, opts: {
+  fanName: string;
+  influencerName: string;
+  requestType: string;
+  deliveryUrl?: string;
+  deliveryNote?: string;
+  sharePageUrl?: string;
+}): Promise<void> {
+  await send(to, `Your ${opts.requestType} from ${opts.influencerName} is ready! 🎉`, layout(`
+    <h2>Your request has been fulfilled! 🎉</h2>
+    <p class="light">Hi ${opts.fanName}! <strong>${opts.influencerName}</strong> has completed your ${opts.requestType} request.</p>
+    ${opts.deliveryNote ? `<div class="card"><p style="color:#ccc;font-size:14px;line-height:1.6">"${opts.deliveryNote}"</p></div>` : ''}
+    ${opts.deliveryUrl ? `<a href="${opts.deliveryUrl}" class="btn">View Your Content →</a>` : ''}
+    ${opts.sharePageUrl ? `<p style="margin-top:16px"><a href="${opts.sharePageUrl}" style="color:#a78bfa">View your shareable delivery page →</a></p>` : ''}
+    <div class="divider"></div>
+    <p style="font-size:12px;color:#555">Thank you for using FALAK! Don't forget to leave a review.</p>
+  `, `${opts.influencerName} fulfilled your ${opts.requestType} request`));
+}

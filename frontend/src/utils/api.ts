@@ -1098,4 +1098,10 @@ export const portalGetLoyaltyHistory = async () => {
   return data;
 };
 
+// Public delivery page — no auth required
+export const fanGetDelivery = async (token: string) => {
+  const { data } = await fanApi.get(`/delivery/${token}`);
+  return data.delivery as Record<string, unknown>;
+};
+
 export default api;

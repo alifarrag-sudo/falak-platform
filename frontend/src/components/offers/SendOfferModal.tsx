@@ -12,7 +12,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Send, BookMarked, Save, Trash2, ChevronDown } from 'lucide-react';
+import { Send, BookMarked, Save, Trash2, ChevronDown, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Modal from '../ui/Modal';
 import { createOffer, getCampaigns, getOfferTemplates, createOfferTemplate, deleteOfferTemplate } from '../../utils/api';
@@ -22,6 +22,17 @@ import { cn } from '../../utils/helpers';
 const PLATFORMS = ['Instagram', 'TikTok', 'Snapchat', 'Facebook', 'YouTube', 'Twitter'];
 const CONTENT_TYPES = ['Post', 'Story', 'Reel', 'Video', 'Carousel', 'Live'];
 const CURRENCIES = ['EGP', 'SAR', 'AED', 'USD', 'KWD', 'BHD'];
+
+const MARKET_RATES: Record<string, string> = {
+  'Instagram_Post':   '2,000–8,000',
+  'Instagram_Reel':   '3,000–12,000',
+  'Instagram_Story':  '500–2,000',
+  'TikTok_Video':     '2,500–10,000',
+  'TikTok_Live':      '1,500–5,000',
+  'YouTube_Video':    '5,000–25,000',
+  'Snapchat_Story':   '1,000–4,000',
+  'Facebook_Post':    '1,500–6,000',
+};
 
 interface SendOfferModalProps {
   open: boolean;
@@ -280,6 +291,25 @@ export default function SendOfferModal({
               </option>
             ))}
           </select>
+          {(() => {
+            const selectedCampaign = form.campaign_id
+              ? campaigns.find(c => c.id === form.campaign_id)
+              : undefined;
+            if (
+              selectedCampaign &&
+              selectedCampaign.budget != null &&
+              form.rate &&
+              Number(form.rate) > selectedCampaign.budget
+            ) {
+              return (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-900/20 border border-amber-700/30 text-amber-300 text-xs mt-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  This offer ({form.currency} {form.rate}) exceeds the campaign budget ({form.currency} {selectedCampaign.budget?.toLocaleString()})
+                </div>
+              );
+            }
+            return null;
+          })()}
         </div>
 
         {/* Row 2: Platform + Content type */}
@@ -360,6 +390,14 @@ export default function SendOfferModal({
               value={form.rate}
               onChange={e => set('rate', e.target.value)}
             />
+            {form.platform && form.content_type && (
+              <p className="text-xs text-gray-500 mt-1">
+                Market rate for {form.content_type} on {form.platform}:{' '}
+                <span className="text-gray-400 font-medium">
+                  EGP {MARKET_RATES[`${form.platform}_${form.content_type}`] || '—'}
+                </span>
+              </p>
+            )}
           </div>
           <div>
             <label className="label">Currency</label>

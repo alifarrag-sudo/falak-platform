@@ -329,11 +329,10 @@ export async function generateProposalPdf(
       };
     }) as AnyContent,
     footer: ((_currentPage: number): AnyContent => ({
-      text: `Confidential — ${companyName}`,
-      fontSize: 9,
-      color: '#d1d5db',
-      alignment: 'center',
-      margin: [40, 0, 40, 20]
+      columns: [
+        { text: `Confidential — ${companyName}`, fontSize: 9, color: '#d1d5db', margin: [40, 0, 0, 20] },
+        { text: 'Powered by FALAK', fontSize: 9, color: '#d1d5db', alignment: 'right', margin: [0, 0, 40, 20] }
+      ]
     })) as AnyContent,
     content: [...coverContent, ...influencerContent, ...summaryContent],
     styles: {
@@ -581,6 +580,7 @@ export async function generateOfferContractPdf(
     footer: ((_currentPage: number, pageCount: number): AnyContent => ({
       columns: [
         { text: `Influencer Collaboration Agreement — ${companyName}`, fontSize: 8, color: '#d1d5db', margin: [48, 0, 0, 20] },
+        { text: 'Powered by FALAK', fontSize: 8, color: '#d1d5db', alignment: 'center', margin: [0, 0, 0, 20] },
         {
           text: `Page ${_currentPage} of ${pageCount}`,
           fontSize: 8,

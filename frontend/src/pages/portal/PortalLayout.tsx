@@ -15,15 +15,35 @@ function CpLogo() {
   );
 }
 
+const RTL_KEY = 'falak_rtl';
+
 export default function PortalLayout() {
   const navigate = useNavigate();
   const [user, setUser] = useState<Record<string, string> | null>(null);
+  const [isRtl, setIsRtl] = useState(false);
 
   useEffect(() => {
     portalGetProfile()
       .then(u => setUser(u))
       .catch(() => navigate('/portal/login'));
   }, [navigate]);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(RTL_KEY);
+    if (stored === 'true') {
+      setIsRtl(true);
+      document.documentElement.dir = 'rtl';
+      document.documentElement.lang = 'ar';
+    }
+  }, []);
+
+  const toggleRtl = () => {
+    const next = !isRtl;
+    setIsRtl(next);
+    localStorage.setItem(RTL_KEY, String(next));
+    document.documentElement.dir = next ? 'rtl' : 'ltr';
+    document.documentElement.lang = next ? 'ar' : 'en';
+  };
 
   const handleLogout = () => {
     clearPortalToken();
@@ -67,6 +87,13 @@ export default function PortalLayout() {
           {user && (
             <p className="text-xs text-gray-400 truncate mb-2">{user.name || user.email}</p>
           )}
+          <button
+            onClick={toggleRtl}
+            className="sidebar-link w-full mb-1 text-gray-400 hover:text-white"
+            title={isRtl ? 'Switch to LTR (English)' : 'Switch to RTL (Arabic)'}
+          >
+            <span className="text-sm">{isRtl ? 'English' : 'عربي'}</span>
+          </button>
           <button onClick={handleLogout} className="sidebar-link w-full text-red-400 hover:text-red-300">
             <LogOut className="w-4 h-4" /> Sign Out
           </button>

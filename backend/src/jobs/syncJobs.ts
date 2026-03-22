@@ -12,6 +12,7 @@
 import cron from 'node-cron';
 import { syncAllOAuthAccounts, recalculateAllTrustScores, syncViaScraperByHandle } from '../services/platformSyncService';
 import { getDb } from '../db/schema';
+import { sendOfferExpiryWarningEmail, sendOfferExpiredEmail } from '../services/emailService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type P = any;
@@ -99,5 +100,65 @@ export function initSyncJobs(): void {
     }
   });
 
-  console.log('[cron] Background sync jobs initialized (4 jobs scheduled)');
+  // ── Job 5: Offer expiry — every hour ─────────────────────────────────────
+  cron.schedule('0 * * * *', async () => {
+    try {
+      const db = getDb();
+
+      // 1. Send 24h expiry warning (offers >48h old, <72h, not yet warned)
+      type OfferRow = { id: string; title: string | null; portal_user_id: string | null; created_by: string | null; email: string | null };
+      const warnOffers = db.prepare(`
+        SELECT po.id, po.title, po.portal_user_id, po.created_by,
+               pu.email
+        FROM portal_offers po
+        LEFT JOIN portal_users pu ON po.portal_user_id = pu.id
+        WHERE po.status IN ('sent', 'pending')
+          AND po.sent_at IS NOT NULL
+          AND datetime(po.sent_at, '+48 hours') <= datetime('now')
+          AND datetime(po.sent_at, '+72 hours') > datetime('now')
+          AND po.expiry_warned_at IS NULL
+      `).all() as OfferRow[];
+
+      for (const o of warnOffers) {
+        if (o.email) {
+          await sendOfferExpiryWarningEmail(o.email, {
+            influencerName: '',
+            offerTitle: o.title || 'Untitled offer',
+            expiresIn: 'in 24 hours',
+            offerId: o.id,
+          }).catch(console.error);
+        }
+        db.prepare(`UPDATE portal_offers SET expiry_warned_at = datetime('now') WHERE id = ?`).run(o.id as P);
+      }
+      if (warnOffers.length) console.log(`[cron] Offer expiry: warned ${warnOffers.length} offers`);
+
+      // 2. Auto-expire offers >72h old
+      type ExpiredRow = { id: string; title: string | null; created_by: string | null; agency_email: string | null };
+      const toExpire = db.prepare(`
+        SELECT po.id, po.title, po.created_by,
+               u.email AS agency_email
+        FROM portal_offers po
+        LEFT JOIN users u ON po.created_by = u.id
+        WHERE po.status IN ('sent', 'pending')
+          AND po.sent_at IS NOT NULL
+          AND datetime(po.sent_at, '+72 hours') <= datetime('now')
+      `).all() as ExpiredRow[];
+
+      for (const o of toExpire) {
+        db.prepare(`UPDATE portal_offers SET status = 'expired', updated_at = datetime('now') WHERE id = ?`).run(o.id as P);
+        if (o.agency_email) {
+          await sendOfferExpiredEmail(o.agency_email, {
+            offerTitle: o.title || 'Untitled offer',
+            influencerName: '',
+            offerId: o.id,
+          }).catch(console.error);
+        }
+      }
+      if (toExpire.length) console.log(`[cron] Offer expiry: expired ${toExpire.length} offers`);
+    } catch (err) {
+      console.error('[cron] Offer expiry error:', err);
+    }
+  });
+
+  console.log('[cron] Background sync jobs initialized (5 jobs scheduled)');
 }

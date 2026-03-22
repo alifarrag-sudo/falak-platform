@@ -79,6 +79,7 @@ import FanLayout from './pages/fan/FanLayout';
 import FanDiscoverPage from './pages/fan/FanDiscoverPage';
 import FanInfluencerPage from './pages/fan/FanInfluencerPage';
 import FanRequestsPage from './pages/fan/FanRequestsPage';
+import FanDeliveryPage from './pages/fan/FanDeliveryPage';
 import FanProfilePage from './pages/fan/FanProfilePage';
 
 // Public profile
@@ -141,6 +142,8 @@ export default function App() {
 
         {/* ── Fan Access ─────────────────────────────────────────────────── */}
         <Route path="/fan/login" element={<FanLoginPage />} />
+        {/* Public delivery page — no auth required */}
+        <Route path="/fan/delivery/:token" element={<FanDeliveryPage />} />
         <Route path="/fan" element={<FanLayout />}>
           <Route index element={<Navigate to="/fan/discover" replace />} />
           <Route path="discover"            element={<FanDiscoverPage />} />

@@ -941,6 +941,14 @@ export function initializeDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_fan_requests_status ON fan_requests(status);
   `);
 
+  // ── Fan request share token for public delivery page ───────────────────────
+  for (const [col, def] of [
+    ['share_token', 'TEXT'],
+    ['fan_email',   'TEXT'],
+  ] as [string, string][]) {
+    try { db.exec(`ALTER TABLE fan_requests ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
+  }
+
   // ── Revenue & Commission columns on portal_offers ──────────────────────────
   for (const [col, def] of [
     ['platform_fee_pct',    'REAL'],
@@ -989,6 +997,43 @@ export function initializeDatabase(): void {
   for (const [key, value] of revenueSettings) {
     db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(key, value);
   }
+
+  // ── Offer expiry tracking ───────────────────────────────────────────────────
+  for (const [col, def] of [
+    ['expiry_warned_at', 'TEXT'],   // timestamp when 24h-expiry warning was sent
+  ] as [string, string][]) {
+    try { db.exec(`ALTER TABLE portal_offers ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
+  }
+
+  // ── In-app messaging per offer ──────────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS offer_messages (
+      id          TEXT PRIMARY KEY,
+      offer_id    TEXT NOT NULL,
+      sender_type TEXT NOT NULL,   -- 'agency' | 'influencer'
+      sender_id   TEXT NOT NULL,
+      body        TEXT NOT NULL,
+      read_at     TEXT,
+      created_at  TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_offer_messages_offer ON offer_messages(offer_id);
+    CREATE INDEX IF NOT EXISTS idx_offer_messages_created ON offer_messages(created_at);
+  `);
+
+  // ── Post-campaign ratings ───────────────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS offer_ratings (
+      id              TEXT PRIMARY KEY,
+      offer_id        TEXT NOT NULL UNIQUE,
+      rater_type      TEXT NOT NULL,   -- 'agency'
+      rater_id        TEXT NOT NULL,
+      rating          INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+      review          TEXT,
+      created_at      TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_offer_ratings_offer ON offer_ratings(offer_id);
+    CREATE INDEX IF NOT EXISTS idx_offer_ratings_influencer ON offer_ratings(offer_id);
+  `);
 
   console.log('Database initialized successfully');
 }

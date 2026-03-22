@@ -25,6 +25,8 @@ import billingRouter from './routes/billing';
 import fanRouter from './routes/fan';
 import revenueRouter from './routes/revenue';
 import loyaltyRouter from './routes/loyalty';
+import messagesRouter from './routes/messages';
+import ratingsRouter from './routes/ratings';
 import { initSyncJobs } from './jobs/syncJobs';
 
 dotenv.config();
@@ -95,6 +97,8 @@ app.use('/api/billing', billingRouter);
 app.use('/api/fan', fanRouter);
 app.use('/api/revenue', revenueRouter);
 app.use('/api/loyalty', loyaltyRouter);
+app.use('/api/messages', messagesRouter);
+app.use('/api/ratings', ratingsRouter);
 
 // Health check (both paths for compatibility with Railway/Render/ELB)
 const healthHandler = (_req: express.Request, res: express.Response) => {

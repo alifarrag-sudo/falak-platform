@@ -245,6 +245,24 @@ router.put('/requests/:id/cancel', requireFanAuth, (req: FanRequest, res) => {
   res.json(updated);
 });
 
+// GET /api/fan/delivery/:token — public shareable delivery page (no auth required)
+router.get('/delivery/:token', (req, res) => {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT
+      fr.id, fr.title, fr.request_type, fr.message,
+      fr.delivery_url, fr.delivery_note, fr.fulfilled_at, fr.share_token,
+      i.name_english, i.name_arabic, i.ig_handle, i.tiktok_handle,
+      i.profile_image_url
+    FROM fan_requests fr
+    JOIN influencers i ON fr.influencer_id = i.id
+    WHERE fr.share_token = ? AND fr.status = 'fulfilled'
+  `).get(req.params.token as P) as Record<string, unknown> | undefined;
+
+  if (!row) return res.status(404).json({ error: 'Delivery not found or not yet fulfilled' });
+  return res.json({ delivery: row });
+});
+
 // GET /api/fan/request-types — available request type definitions
 router.get('/request-types', (_req, res) => {
   res.json([

@@ -8,7 +8,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/schema';
 import { createNotification } from './notifications';
-import { sendOfferReceivedEmail, sendOfferStatusEmail } from '../services/emailService';
+import { sendOfferReceivedEmail, sendOfferStatusEmail, sendDeliverableReviewedEmail } from '../services/emailService';
 
 const router = Router();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -469,9 +469,18 @@ router.put('/:offerId/deliverables/:deliverableId/review', (req, res) => {
     // Notify the influencer (portal user) that their deliverable was approved
     try {
       if (reviewedOffer?.portal_user_id) {
-        const pu = db.prepare('SELECT email FROM portal_users WHERE id = ?')
-          .get(reviewedOffer.portal_user_id as P) as { email: string } | undefined;
+        const pu = db.prepare('SELECT email, name FROM portal_users WHERE id = ?')
+          .get(reviewedOffer.portal_user_id as P) as { email: string; name: string } | undefined;
         if (pu?.email) {
+          // Email notification
+          sendDeliverableReviewedEmail(pu.email, {
+            influencerName: pu.name || 'Creator',
+            offerTitle: String(reviewedOffer.title || 'Untitled offer'),
+            approved: true,
+            feedback: String(feedback || '') || undefined,
+          }).catch(() => {});
+
+          // In-app notification
           const unifiedUser = db.prepare('SELECT id FROM users WHERE email = ?')
             .get(pu.email as P) as { id: string } | undefined;
           if (unifiedUser) {
@@ -491,6 +500,21 @@ router.put('/:offerId/deliverables/:deliverableId/review', (req, res) => {
   } else if (decision === 'revision_requested') {
     db.prepare(`UPDATE portal_offers SET status = 'in_progress', updated_at = datetime('now') WHERE id = ?`)
       .run(req.params.offerId);
+    // Notify influencer of revision request
+    try {
+      if (reviewedOffer?.portal_user_id) {
+        const pu = db.prepare('SELECT email, name FROM portal_users WHERE id = ?')
+          .get(reviewedOffer.portal_user_id as P) as { email: string; name: string } | undefined;
+        if (pu?.email) {
+          sendDeliverableReviewedEmail(pu.email, {
+            influencerName: pu.name || 'Creator',
+            offerTitle: String(reviewedOffer.title || 'Untitled offer'),
+            approved: false,
+            feedback: String(feedback || '') || undefined,
+          }).catch(() => {});
+        }
+      }
+    } catch { /* non-critical */ }
   }
 
   const deliverable = db.prepare('SELECT * FROM portal_deliverables WHERE id = ?').get(req.params.deliverableId);
