@@ -10,17 +10,11 @@ services:
       cp -r ../frontend/dist ./dist/public
     startCommand: bash start.sh
     healthCheckPath: /health
-    disk:
-      name: falak-data
-      mountPath: /opt/render/project/src/backend/data
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3001
-      - key: DB_PATH
-        value: /opt/render/project/src/backend/data/falak.db
       - key: JWT_SECRET
         generateValue: true
       - key: TOKEN_ENCRYPTION_KEY
