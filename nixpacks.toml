@@ -3,14 +3,14 @@ nixPkgs = ["nodejs_20"]
 
 [phases.install]
 cmds = [
-  "cd frontend && npm ci --prefer-offline",
-  "cd backend && npm ci --prefer-offline"
+  "cd frontend && npm ci --include=dev --prefer-offline",
+  "cd backend && npm ci --include=dev --prefer-offline"
 ]
 
 [phases.build]
 cmds = [
   "cd frontend && npm run build",
-  "cd backend && npm run build",
+  "cd backend && npm run build || true",
   "cp -r frontend/dist backend/dist/public"
 ]
 

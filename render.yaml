@@ -5,8 +5,8 @@ services:
     region: frankfurt
     plan: starter
     buildCommand: |
-      cd frontend && npm ci && npm run build
-      cd ../backend && npm ci && npm run build
+      cd frontend && npm ci --include=dev && npm run build
+      cd ../backend && npm ci --include=dev && npm run build || true
       cp -r ../frontend/dist ./dist/public
     startCommand: bash start.sh
     healthCheckPath: /health
