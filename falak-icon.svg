@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#080808"/>
+
+  <!-- Outer orbit ring -->
+  <circle cx="256" cy="256" r="190" fill="none" stroke="#c9a84c" stroke-width="6" stroke-dasharray="12 8" opacity="0.4"/>
+
+  <!-- Inner orbit ring -->
+  <circle cx="256" cy="256" r="120" fill="none" stroke="#e8c97a" stroke-width="3" opacity="0.25"/>
+
+  <!-- Gold gradient definition -->
+  <defs>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d4a017"/>
+      <stop offset="100%" stop-color="#e8c97a"/>
+    </linearGradient>
+    <linearGradient id="goldText" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e8c97a"/>
+      <stop offset="100%" stop-color="#c9a84c"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Arabic letter Fa (ف) — stylised -->
+  <text x="256" y="310" font-family="serif" font-size="200" font-weight="700"
+        fill="url(#goldText)" text-anchor="middle">ف</text>
+
+  <!-- Orbiting dot on outer ring (top) -->
+  <circle cx="256" cy="66" r="14" fill="#e8c97a"/>
+  <circle cx="256" cy="66" r="8" fill="#d4a017"/>
+
+  <!-- Orbiting dot on outer ring (right) -->
+  <circle cx="446" cy="256" r="8" fill="#c9a84c" opacity="0.6"/>
+</svg>

@@ -1,0 +1,18 @@
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = [
+  "cd frontend && npm ci --prefer-offline",
+  "cd backend && npm ci --prefer-offline"
+]
+
+[phases.build]
+cmds = [
+  "cd frontend && npm run build",
+  "cd backend && npm run build",
+  "cp -r frontend/dist backend/dist/public"
+]
+
+[start]
+cmd = "bash start.sh"

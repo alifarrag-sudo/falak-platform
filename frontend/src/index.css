@@ -1,0 +1,155 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Cairo:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: #1c1c1c;
+    color: #f0f0f0;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  [lang="ar"], [dir="rtl"] {
+    font-family: 'Cairo', 'Noto Sans Arabic', system-ui, sans-serif;
+  }
+
+  .arabic-text {
+    font-family: 'Cairo', 'Noto Sans Arabic', system-ui, sans-serif;
+    direction: rtl;
+    text-align: right;
+  }
+}
+
+@layer components {
+  /* ── Buttons ─────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-surface disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-white text-[#1c1c1c] hover:bg-gray-100 focus:ring-white;
+  }
+
+  .btn-secondary {
+    @apply btn bg-surface-overlay text-white border border-surface-border hover:bg-surface-subtle focus:ring-surface-subtle;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-700 text-white hover:bg-red-600 focus:ring-red-500;
+  }
+
+  .btn-ghost {
+    @apply btn text-gray-400 hover:bg-surface-overlay hover:text-white focus:ring-surface-border;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+
+  /* ── Cards ───────────────────────────────────────── */
+  .card {
+    @apply bg-surface-raised rounded-xl border border-surface-border shadow-glow-md;
+  }
+
+  /* ── Form elements ───────────────────────────────── */
+  .input {
+    @apply w-full px-3 py-2 bg-surface-overlay border border-surface-border rounded-lg text-sm text-white placeholder-gray-500
+           focus:outline-none focus:ring-1 focus:ring-white/30 focus:border-white/30 transition-all;
+  }
+
+  .label {
+    @apply block text-xs font-medium text-gray-400 mb-1 uppercase tracking-wide;
+  }
+
+  /* ── Badges ──────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-blue {
+    @apply badge bg-blue-900/50 text-blue-300 border border-blue-800/50;
+  }
+
+  .badge-green {
+    @apply badge bg-emerald-900/50 text-emerald-300 border border-emerald-800/50;
+  }
+
+  .badge-orange {
+    @apply badge bg-amber-900/50 text-amber-300 border border-amber-800/50;
+  }
+
+  .badge-purple {
+    @apply badge bg-purple-900/50 text-purple-300 border border-purple-800/50;
+  }
+
+  .badge-gray {
+    @apply badge bg-surface-subtle text-gray-300 border border-surface-border;
+  }
+
+  /* ── Sidebar navigation ──────────────────────────── */
+  .sidebar-link {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400
+           hover:bg-surface-overlay hover:text-white transition-all;
+  }
+
+  .sidebar-link.active {
+    @apply bg-white text-[#1c1c1c] hover:bg-gray-100;
+  }
+
+  /* ── Table ───────────────────────────────────────── */
+  .table-row-hover {
+    @apply hover:bg-surface-overlay transition-colors cursor-pointer;
+  }
+}
+
+/* ── Scrollbar ──────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #3d3d3d; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* ── Skeleton shimmer ────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #252525 25%, #333333 50%, #252525 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+/* ── Quarter-circle decorative motif ────────────────── */
+.qc-motif {
+  position: relative;
+  overflow: hidden;
+}
+.qc-motif::after {
+  content: '';
+  position: absolute;
+  bottom: -40px;
+  right: -40px;
+  width: 80px;
+  height: 80px;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+}

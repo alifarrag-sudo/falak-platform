@@ -1,0 +1,12 @@
+{
+  "name": "influencer-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Influencer Marketing SaaS Platform",
+  "scripts": {
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "build": "cd frontend && npm run build && cd ../backend && npm run build",
+    "start": "node backend/dist/index.js",
+    "install:all": "cd frontend && npm install && cd ../backend && npm install"
+  }
+}

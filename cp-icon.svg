@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="80" fill="#0f0f0f"/>
+
+  <!-- C shape -->
+  <path d="M180 156 A120 120 0 1 0 180 356 L180 310 A74 74 0 1 1 180 202 Z" fill="white"/>
+
+  <!-- P shape -->
+  <rect x="210" y="156" width="46" height="200" fill="white"/>
+  <path d="M256 156 Q356 156 356 216 Q356 276 256 276 L256 230 Q308 230 308 216 Q308 202 256 202 Z" fill="white"/>
+
+  <!-- Accent dot -->
+  <circle cx="388" cy="148" r="28" fill="#4ade80"/>
+</svg>

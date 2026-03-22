@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FALAK Platform — Demo Access</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #080808;
+    color: #e5e5e5;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+  }
+
+  .card {
+    background: #111111;
+    border: 1px solid #2a2a2a;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 680px;
+    overflow: hidden;
+  }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #111111 0%, #1a1500 100%);
+    border-bottom: 1px solid #2a2a2a;
+    padding: 40px 48px 32px;
+    text-align: center;
+  }
+  .logo-ring {
+    width: 64px; height: 64px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #d4a017, #e8c97a);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 16px;
+    font-family: serif; font-size: 32px; color: #080808; font-weight: 700;
+  }
+  .brand { font-size: 28px; font-weight: 700; color: #fff; letter-spacing: 4px; }
+  .brand-sub { font-size: 11px; color: #6b6b6b; letter-spacing: 3px; text-transform: uppercase; margin-top: 4px; }
+  .tagline {
+    margin-top: 20px;
+    font-size: 15px;
+    color: #aaa;
+    line-height: 1.6;
+  }
+  .tagline strong { color: #e8c97a; }
+
+  /* Body */
+  .body { padding: 40px 48px; }
+
+  .section-label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #555;
+    margin-bottom: 16px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-label::after {
+    content: ''; flex: 1; height: 1px; background: #2a2a2a;
+  }
+
+  /* Access rows */
+  .access-grid { display: flex; flex-direction: column; gap: 10px; margin-bottom: 36px; }
+
+  .access-row {
+    background: #0d0d0d;
+    border: 1px solid #222;
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    transition: border-color .15s;
+  }
+  .access-row:hover { border-color: #c9a84c44; }
+
+  .role-badge {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 4px;
+    min-width: 100px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .badge-admin    { background: #7c3aed22; color: #a78bfa; border: 1px solid #7c3aed44; }
+  .badge-agency   { background: #d4a01722; color: #e8c97a; border: 1px solid #d4a01744; }
+  .badge-creator  { background: #0ea5e922; color: #38bdf8; border: 1px solid #0ea5e944; }
+  .badge-fan      { background: #10b98122; color: #34d399; border: 1px solid #10b98144; }
+
+  .access-info { flex: 1; min-width: 0; }
+  .access-email { font-size: 13px; color: #ddd; font-family: monospace; }
+  .access-note  { font-size: 11px; color: #555; margin-top: 2px; }
+
+  .access-url {
+    font-size: 11px;
+    color: #c9a84c;
+    text-decoration: none;
+    font-family: monospace;
+    background: #c9a84c12;
+    border: 1px solid #c9a84c33;
+    padding: 4px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .access-url:hover { background: #c9a84c22; }
+
+  /* Password box */
+  .password-box {
+    background: #0a0a0a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 36px;
+  }
+  .password-label { font-size: 11px; color: #666; }
+  .password-value { font-size: 18px; font-family: monospace; color: #e8c97a; letter-spacing: 2px; }
+  .copy-btn {
+    background: #c9a84c22;
+    border: 1px solid #c9a84c44;
+    color: #e8c97a;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background .15s;
+    white-space: nowrap;
+  }
+  .copy-btn:hover { background: #c9a84c33; }
+
+  /* What to explore */
+  .explore-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 36px;
+  }
+  .explore-item {
+    background: #0d0d0d;
+    border: 1px solid #1e1e1e;
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .explore-icon { font-size: 18px; margin-bottom: 6px; }
+  .explore-title { font-size: 12px; font-weight: 600; color: #ccc; }
+  .explore-desc { font-size: 11px; color: #555; margin-top: 3px; line-height: 1.5; }
+
+  /* Footer */
+  .footer {
+    border-top: 1px solid #1e1e1e;
+    padding: 24px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #0a0a0a;
+  }
+  .footer-brand { font-size: 12px; color: #444; }
+  .footer-brand span { color: #c9a84c; }
+  .contact-link { font-size: 12px; color: #666; text-decoration: none; }
+  .contact-link:hover { color: #c9a84c; }
+
+  @media (max-width: 540px) {
+    .header, .body { padding: 32px 24px; }
+    .footer { padding: 20px 24px; flex-direction: column; gap: 8px; text-align: center; }
+    .explore-grid { grid-template-columns: 1fr; }
+    .access-url { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+
+  <div class="header">
+    <div class="logo-ring">ف</div>
+    <div class="brand">FALAK</div>
+    <div class="brand-sub">فلك · Influencer Platform</div>
+    <p class="tagline">
+      You're invited to explore a <strong>live demo</strong> of the FALAK platform —<br>
+      Egypt's end-to-end influencer marketplace.
+    </p>
+  </div>
+
+  <div class="body">
+
+    <!-- Password -->
+    <div class="section-label">Universal Demo Password</div>
+    <div class="password-box">
+      <div>
+        <div class="password-label">All accounts use the same password</div>
+        <div class="password-value">Falak@Demo2026</div>
+      </div>
+      <button class="copy-btn" onclick="copy('Falak@Demo2026', this)">Copy</button>
+    </div>
+
+    <!-- Accounts -->
+    <div class="section-label">Demo Accounts</div>
+    <div class="access-grid">
+
+      <div class="access-row">
+        <span class="role-badge badge-admin">Admin</span>
+        <div class="access-info">
+          <div class="access-email">admin@demo.falak.io</div>
+          <div class="access-note">Full platform access — influencers, campaigns, analytics, settings</div>
+        </div>
+        <a class="access-url" href="#" id="url-admin">DEMO_URL/</a>
+      </div>
+
+      <div class="access-row">
+        <span class="role-badge badge-agency">Agency</span>
+        <div class="access-info">
+          <div class="access-email">agency@demo.falak.io</div>
+          <div class="access-note">Agency view — roster, campaign briefs, offers, payments</div>
+        </div>
+        <a class="access-url" href="#" id="url-agency">DEMO_URL/</a>
+      </div>
+
+      <div class="access-row">
+        <span class="role-badge badge-creator">Creator Portal</span>
+        <div class="access-info">
+          <div class="access-email">creator@demo.falak.io</div>
+          <div class="access-note">Influencer view — active offers, earnings, social connections</div>
+        </div>
+        <a class="access-url" href="#" id="url-creator">DEMO_URL/portal/login</a>
+      </div>
+
+      <div class="access-row">
+        <span class="role-badge badge-fan">Fan Access</span>
+        <div class="access-info">
+          <div class="access-email">fan@demo.falak.io</div>
+          <div class="access-note">Consumer view — browse creators, book personalised content</div>
+        </div>
+        <a class="access-url" href="#" id="url-fan">DEMO_URL/</a>
+      </div>
+
+    </div>
+
+    <!-- What to explore -->
+    <div class="section-label">Suggested Exploration Path</div>
+    <div class="explore-grid">
+      <div class="explore-item">
+        <div class="explore-icon">👥</div>
+        <div class="explore-title">Influencer Roster</div>
+        <div class="explore-desc">12 Egyptian creators across 8 categories with live trust scores and tier badges</div>
+      </div>
+      <div class="explore-item">
+        <div class="explore-icon">📣</div>
+        <div class="explore-title">Campaigns</div>
+        <div class="explore-desc">3 campaigns (Juhayna, L'Oréal, Noon.com) with briefs, budgets, and offer tracking</div>
+      </div>
+      <div class="explore-item">
+        <div class="explore-icon">💸</div>
+        <div class="explore-title">Offers & Payments</div>
+        <div class="explore-desc">EGP-denominated offers in every status — sent, accepted, in-progress, paid</div>
+      </div>
+      <div class="explore-item">
+        <div class="explore-icon">🔗</div>
+        <div class="explore-title">Social Connections</div>
+        <div class="explore-desc">OAuth connect flow for Instagram, TikTok, YouTube, Snapchat, X, and Facebook</div>
+      </div>
+      <div class="explore-item">
+        <div class="explore-icon">📊</div>
+        <div class="explore-title">Analytics Dashboard</div>
+        <div class="explore-desc">Platform-wide KPIs, trust score distribution, campaign ROI summary</div>
+      </div>
+      <div class="explore-item">
+        <div class="explore-icon">🌟</div>
+        <div class="explore-title">Fan Marketplace</div>
+        <div class="explore-desc">Consumer-facing discovery — browse, wishlist, and book personalised creator content</div>
+      </div>
+    </div>
+
+    <!-- Note -->
+    <p style="font-size: 11px; color: #444; line-height: 1.7; text-align: center;">
+      This is a fully functional live environment. All data is synthetic and resets periodically.<br>
+      Social API connections require your own developer credentials (instructions inside the platform under Admin → Integrations).
+    </p>
+
+  </div>
+
+  <div class="footer">
+    <span class="footer-brand"><span>FALAK</span> · فلك · Investor Demo</span>
+    <a class="contact-link" href="mailto:invest@falak.io">invest@falak.io</a>
+  </div>
+
+</div>
+
+<script>
+  // Inject the actual demo URL when served from a real domain
+  const DEMO_BASE = window.location.origin !== 'null' && !window.location.href.startsWith('file:')
+    ? window.location.origin
+    : 'https://YOUR-DEMO-URL.onrender.com';
+
+  document.getElementById('url-admin').href   = DEMO_BASE + '/';
+  document.getElementById('url-admin').textContent = DEMO_BASE.replace('https://','') + '/';
+  document.getElementById('url-agency').href  = DEMO_BASE + '/';
+  document.getElementById('url-agency').textContent = DEMO_BASE.replace('https://','') + '/';
+  document.getElementById('url-creator').href = DEMO_BASE + '/portal/login';
+  document.getElementById('url-creator').textContent = DEMO_BASE.replace('https://','') + '/portal/login';
+  document.getElementById('url-fan').href     = DEMO_BASE + '/fan';
+  document.getElementById('url-fan').textContent = DEMO_BASE.replace('https://','') + '/fan';
+
+  function copy(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = orig, 2000);
+    });
+  }
+</script>
+
+</body>
+</html>
