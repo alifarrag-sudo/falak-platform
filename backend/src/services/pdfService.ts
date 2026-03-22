@@ -1,5 +1,8 @@
 import PdfPrinter from 'pdfmake';
-import { TDocumentDefinitions, Content } from 'pdfmake/interfaces';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TDocumentDefinitions = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Content = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyContent = any;
 
