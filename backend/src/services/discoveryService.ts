@@ -127,7 +127,7 @@ function markAlreadyImported(results: DiscoveredInfluencer[]): void {
 
 export async function discoverInfluencers(
   query: string,
-  platform: 'instagram' | 'tiktok' | 'both',
+  platform: string,
   limit = 20
 ): Promise<{ results: DiscoveredInfluencer[]; error?: string }> {
   const apiKey = getRapidApiKey();
@@ -136,14 +136,15 @@ export async function discoverInfluencers(
   }
 
   const results: DiscoveredInfluencer[] = [];
+  const isBothOrAll = platform === 'both' || platform === 'all';
 
-  if (platform === 'instagram' || platform === 'both') {
-    const ig = await searchInstagram(query, limit, apiKey);
+  if (platform === 'instagram' || isBothOrAll) {
+    const ig = await searchInstagram(query, isBothOrAll ? Math.floor(limit / 2) : limit, apiKey);
     results.push(...ig);
   }
 
-  if (platform === 'tiktok' || platform === 'both') {
-    const tt = await searchTikTok(query, platform === 'both' ? Math.floor(limit / 2) : limit, apiKey);
+  if (platform === 'tiktok' || isBothOrAll) {
+    const tt = await searchTikTok(query, isBothOrAll ? Math.floor(limit / 2) : limit, apiKey);
     results.push(...tt);
   }
 

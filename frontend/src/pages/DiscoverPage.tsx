@@ -1,15 +1,19 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Instagram, Music2, CheckCircle, ExternalLink, Download, Loader2, AlertCircle, Users, KeyRound } from 'lucide-react';
+import { Search, Instagram, Music2, Youtube, Twitter, CheckCircle, ExternalLink, Download, Loader2, AlertCircle, Users, KeyRound } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { discoverInfluencers, importDiscoveredInfluencer, importDiscoveredBulk, type DiscoveredInfluencer } from '../utils/api';
 import { cn } from '../utils/helpers';
 
 const PLATFORMS = [
-  { value: 'both',      label: 'Instagram + TikTok' },
+  { value: 'all',       label: 'All Platforms' },
   { value: 'instagram', label: 'Instagram' },
   { value: 'tiktok',    label: 'TikTok' },
+  { value: 'youtube',   label: 'YouTube' },
+  { value: 'snapchat',  label: 'Snapchat' },
+  { value: 'twitter',   label: 'Twitter / X' },
+  { value: 'facebook',  label: 'Facebook' },
 ];
 
 const COUNTRIES = ['Saudi Arabia','UAE','Egypt','Kuwait','Bahrain','Oman','Qatar','Jordan','Lebanon','Morocco','Iraq','US','UK','Other'];
@@ -29,13 +33,27 @@ function formatFollowers(n?: number): string {
 
 function PlatformIcon({ platform }: { platform: string }) {
   if (platform === 'instagram') return <Instagram className="w-3.5 h-3.5" />;
-  if (platform === 'tiktok') return <Music2 className="w-3.5 h-3.5" />;
+  if (platform === 'tiktok')    return <Music2 className="w-3.5 h-3.5" />;
+  if (platform === 'youtube')   return <Youtube className="w-3.5 h-3.5" />;
+  if (platform === 'twitter')   return <Twitter className="w-3.5 h-3.5" />;
+  if (platform === 'snapchat')  return <span className="text-[10px] font-bold leading-none">👻</span>;
+  if (platform === 'facebook')  return <span className="text-[10px] font-bold leading-none">f</span>;
   return null;
+}
+
+function platformColor(platform: string) {
+  if (platform === 'instagram') return 'text-pink-400';
+  if (platform === 'tiktok')    return 'text-slate-300';
+  if (platform === 'youtube')   return 'text-red-400';
+  if (platform === 'twitter')   return 'text-sky-400';
+  if (platform === 'snapchat')  return 'text-yellow-400';
+  if (platform === 'facebook')  return 'text-blue-400';
+  return 'text-gray-400';
 }
 
 export default function DiscoverPage() {
   const [query, setQuery]         = useState('');
-  const [platform, setPlatform]   = useState('both');
+  const [platform, setPlatform]   = useState('all');
   const [country, setCountry]     = useState('');
   const [minFoll, setMinFoll]     = useState('');
   const [maxFoll, setMaxFoll]     = useState('');
@@ -282,7 +300,7 @@ export default function DiscoverPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-1 mt-0.5">
-                      <span className={cn('text-xs', inf.platform === 'instagram' ? 'text-pink-400' : 'text-slate-300')}>
+                      <span className={cn('text-xs', platformColor(inf.platform))}>
                         <PlatformIcon platform={inf.platform} />
                       </span>
                       <span className="text-xs text-gray-500">@{inf.handle}</span>
@@ -358,8 +376,7 @@ export default function DiscoverPage() {
           <Search className="w-12 h-12 text-gray-600 mx-auto mb-4" />
           <p className="text-gray-300 font-medium mb-2">Discover Influencers</p>
           <p className="text-sm text-gray-500 max-w-sm mx-auto">
-            Search by keyword, hashtag, or niche to find influencers on Instagram and TikTok.
-            Results come from live platform data via RapidAPI.
+            Search by keyword, hashtag, or niche to find influencers across Instagram, TikTok, YouTube, Snapchat, Twitter, and Facebook.
           </p>
         </div>
       ) : null}
