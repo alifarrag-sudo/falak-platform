@@ -463,18 +463,86 @@ async function seed() {
   /* ── Offers ──────────────────────────────────────────────────────────────── */
   console.log('\n── Offers ──────────────────────────────────────────────────');
 
+  const RAMADAN_BRIEF = `Ramadan awareness campaign for Juhayna dairy products.
+
+Content Requirements:
+- Show the product naturally in warm family Ramadan moments (iftar table, suhoor, family gatherings)
+- 2 feed posts + 4 stories per influencer
+- Captions must be in Arabic with English subtitle
+- Must include: #رمضان_مع_جهينة #Juhayna hashtags
+- Brand colours: white and green — no clashing backgrounds
+- No competitor brand mentions or logos in frame
+- Story must include a swipe-up link to the Juhayna website
+
+Approval Process:
+- Submit draft content 5 business days before the posting date
+- Agency will review and provide feedback within 48 hours
+- Final approval required before any content goes live
+
+Posting Schedule:
+- Stories: first 15 days of Ramadan
+- Feed posts: weeks 2 and 3 of Ramadan for maximum engagement`;
+
+  const LOREAL_BRIEF = `Summer Glow skincare line launch for L'Oréal Egypt.
+
+Target Audience: Women aged 18–35 interested in skincare and beauty.
+
+Content Requirements:
+- Show a before/after transformation using the Summer Glow product line
+- Must use #SummerGlowEG hashtag in every post
+- Captions required in both English AND Arabic
+- Disclose sponsorship with #ad or #sponsored
+- Natural outdoor lighting preferred — summer aesthetic
+
+Deliverables:
+- 2 TikTok videos (45–60 seconds each)
+- Hook must appear in the first 2 seconds
+- Submit caption draft for approval before posting`;
+
+  const NOON_BRIEF = `Drive purchases during Noon's E-Commerce Day flash sale.
+
+Key Requirements:
+- Promo code MUST be visible in the first 3 seconds of the video
+- Minimum 1M combined reach across all influencers
+- Call-to-action: "Shop now on Noon — link in bio"
+- Use your personal promo code for tracking
+
+Content Format:
+- 3 Instagram Stories with countdown to sale
+- 1 feed post announcing the deal
+- Story must include the Noon sticker/link`;
+
   const offers = [
+    // Salma: SENT offer first — so creator can demo the accept flow
     {
       id: uuidv4(),
-      influencer_id: influencers[0].id, // Salma — linked to portal user
+      influencer_id: influencers[0].id,
+      campaign_id: campaigns[1].id, // L'Oréal draft campaign
+      title: "Summer Glow Campaign — Salma El-Masry",
+      platform: 'TikTok',
+      deliverables: '2 TikTok Videos (60s each)',
+      brief: LOREAL_BRIEF,
+      agency_notes: 'Hook in first 2 seconds. Submit caption for approval before going live.',
+      rate: 35_000,
+      currency: 'EGP',
+      status: 'sent',
+      deadline: '2026-05-20',
+      payment_status: null,
+    },
+    // Salma: ACCEPTED offer — so creator can demo submission
+    {
+      id: uuidv4(),
+      influencer_id: influencers[0].id,
       campaign_id: campaigns[0].id,
       title: 'Ramadan Campaign — Salma El-Masry',
       platform: 'Instagram',
       deliverables: '2 Feed Posts + 4 Stories',
+      brief: RAMADAN_BRIEF,
+      agency_notes: 'Send draft content 5 business days before posting. English and Arabic captions required.',
       rate: 28_000,
       currency: 'EGP',
       status: 'accepted',
-      deadline: '2026-03-15',
+      deadline: '2026-03-28',
       payment_status: 'unpaid',
     },
     {
@@ -484,10 +552,12 @@ async function seed() {
       title: 'Ramadan Campaign — Karim Adel',
       platform: 'TikTok',
       deliverables: '2 TikTok Videos (60s)',
+      brief: RAMADAN_BRIEF,
+      agency_notes: 'TikTok format. Hook must appear in first 2 seconds.',
       rate: 55_000,
       currency: 'EGP',
       status: 'in_progress',
-      deadline: '2026-03-18',
+      deadline: '2026-03-25',
       payment_status: 'unpaid',
     },
     {
@@ -497,10 +567,12 @@ async function seed() {
       title: 'Ramadan Campaign — Nour Ibrahim',
       platform: 'Instagram',
       deliverables: '1 Reel + 3 Stories',
+      brief: RAMADAN_BRIEF,
+      agency_notes: 'Beauty angle — focus on self-care during Ramadan.',
       rate: 9_500,
       currency: 'EGP',
       status: 'sent',
-      deadline: '2026-03-20',
+      deadline: '2026-03-30',
       payment_status: null,
     },
     {
@@ -510,6 +582,8 @@ async function seed() {
       title: 'Noon Flash Sale — Yasmine Farouk',
       platform: 'Instagram',
       deliverables: '3 Stories + 1 Feed Post',
+      brief: NOON_BRIEF,
+      agency_notes: 'Food/kitchen products focus. Use personal promo code.',
       rate: 12_000,
       currency: 'EGP',
       status: 'completed',
@@ -523,6 +597,8 @@ async function seed() {
       title: 'Noon Flash Sale — Hassan Gamal',
       platform: 'TikTok',
       deliverables: '2 TikTok Videos',
+      brief: NOON_BRIEF,
+      agency_notes: 'Tech/gadget products from Noon catalogue.',
       rate: 3_800,
       currency: 'EGP',
       status: 'completed',
@@ -536,6 +612,8 @@ async function seed() {
       title: 'Gym Brand — Omar El-Sheikh (Direct)',
       platform: 'Instagram',
       deliverables: '1 Reel + 5 Stories',
+      brief: 'Authentic gym workout content featuring the brand\'s protein supplement. Show real training session with natural product integration. Must include before/after comparison and personal recommendation.',
+      agency_notes: 'Direct deal — no campaign attached. Send invoice to agency.',
       rate: 8_000,
       currency: 'EGP',
       status: 'submitted',
@@ -545,13 +623,15 @@ async function seed() {
   ];
 
   const insertOffer = db.prepare(`
-    INSERT OR IGNORE INTO portal_offers (id, influencer_id, campaign_id, title, platform, deliverables, rate, currency, status, deadline, payment_status, paid_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO portal_offers (id, influencer_id, campaign_id, title, platform, deliverables, brief, agency_notes, rate, currency, status, deadline, payment_status, paid_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const o of offers) {
     insertOffer.run(
       o.id as P, o.influencer_id as P, (o.campaign_id ?? null) as P,
-      o.title as P, o.platform as P, o.deliverables as P, o.rate as P, o.currency as P,
+      o.title as P, o.platform as P, o.deliverables as P,
+      (o.brief ?? null) as P, (o.agency_notes ?? null) as P,
+      o.rate as P, o.currency as P,
       o.status as P, o.deadline as P,
       (o.payment_status ?? null) as P,
       (o.payment_status === 'paid' ? new Date().toISOString() : null) as P,
@@ -612,7 +692,7 @@ async function seed() {
   console.log('  │ Fan                 │ fan@demo.falak.io          │ Falak@Demo2026 │');
   console.log('  └─────────────────────┴────────────────────────────┴────────────────┘');
   console.log('');
-  console.log('  Data: 12 Egyptian influencers · 3 campaigns · 6 offers · EGP pricing');
+  console.log('  Data: 12 Egyptian influencers · 3 campaigns · 7 offers · EGP pricing');
   console.log('  URLs: / (admin) · /portal/login (creator) · /fan (fan access)');
   console.log('═══════════════════════════════════════════════════════════════\n');
 }
