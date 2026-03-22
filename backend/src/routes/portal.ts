@@ -492,6 +492,45 @@ router.put('/offers/:id/respond', requirePortalAuth, (req: AuthRequest, res) => 
     WHERE id = ?
   `).run(decision, influencer_notes || null, userId, offer.id as P);
 
+  // ── Commission calculation on acceptance ───────────────────────────────────
+  if (decision === 'accepted') {
+    try {
+      const rate = offer.rate as number | null;
+      if (rate && rate > 0) {
+        const settingRow = db.prepare("SELECT value FROM settings WHERE key = 'platform_commission_pct'")
+          .get() as { value: string } | undefined;
+        const feePct   = parseFloat(settingRow?.value || '10');
+        const feeAmt   = Math.round((rate * feePct / 100) * 100) / 100;
+        const netAmt   = Math.round((rate - feeAmt) * 100) / 100;
+        const currency = (offer.currency as string) || 'EGP';
+
+        db.prepare(`
+          UPDATE portal_offers SET platform_fee_pct = ?, platform_fee_amount = ?, net_amount = ?
+          WHERE id = ?
+        `).run(feePct, feeAmt, netAmt, offer.id as P);
+
+        db.prepare(`
+          INSERT INTO commissions
+            (id, transaction_type, reference_id, offer_title, influencer_id, gross_amount,
+             commission_rate, commission_amount, net_amount, currency, status)
+          VALUES (?, 'offer', ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+        `).run(uuidv4() as P, offer.id as P, (offer.title || null) as P, (offer.influencer_id || null) as P,
+               rate as P, feePct as P, feeAmt as P, netAmt as P, currency as P);
+      }
+
+      // Award loyalty points to influencer
+      const loyaltyUserId = String(userId || linkedInfluencerId || '');
+      if (loyaltyUserId) {
+        db.prepare(`
+          INSERT INTO loyalty_points (id, user_type, user_id, action, points, reference_id, note)
+          VALUES (?, 'influencer', ?, 'offer_accepted', 10, ?, 'Offer accepted')
+        `).run(uuidv4() as P, loyaltyUserId as P, offer.id as P);
+      }
+    } catch (commErr) {
+      console.error('[portal] Commission calculation failed:', commErr);
+    }
+  }
+
   // Notify the agency/admin that the influencer responded to the offer.
   try {
     const influencerName = (req.portalUser!.name as string) || (req.portalUser!.handle as string) || 'An influencer';

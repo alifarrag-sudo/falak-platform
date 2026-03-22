@@ -3,6 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import fileUpload from 'express-fileupload';
 import dotenv from 'dotenv';
+import rateLimit from 'express-rate-limit';
 import { initializeDatabase } from './db/schema';
 import influencersRouter from './routes/influencers';
 import campaignsRouter from './routes/campaigns';
@@ -22,6 +23,8 @@ import paymentsRouter from './routes/payments';
 import offerTemplatesRouter from './routes/offerTemplates';
 import billingRouter from './routes/billing';
 import fanRouter from './routes/fan';
+import revenueRouter from './routes/revenue';
+import loyaltyRouter from './routes/loyalty';
 import { initSyncJobs } from './jobs/syncJobs';
 
 dotenv.config();
@@ -37,6 +40,28 @@ app.use(cors({
   ],
   credentials: true
 }));
+// Rate limiting — 200 req/15min per IP on all API routes
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.path === '/health' || req.path === '/api/health',
+});
+app.use('/api/', apiLimiter);
+
+// Strict limiter for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/portal/auth/login', authLimiter);
+app.use('/api/fan/auth/login', authLimiter);
+
 // Stripe webhook needs raw body — MUST come before express.json()
 app.use('/api/billing/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '10mb' }));
@@ -68,6 +93,8 @@ app.use('/api/payments', paymentsRouter);
 app.use('/api/offer-templates', offerTemplatesRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/fan', fanRouter);
+app.use('/api/revenue', revenueRouter);
+app.use('/api/loyalty', loyaltyRouter);
 
 // Health check (both paths for compatibility with Railway/Render/ELB)
 const healthHandler = (_req: express.Request, res: express.Response) => {

@@ -941,5 +941,54 @@ export function initializeDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_fan_requests_status ON fan_requests(status);
   `);
 
+  // ── Revenue & Commission columns on portal_offers ──────────────────────────
+  for (const [col, def] of [
+    ['platform_fee_pct',    'REAL'],
+    ['platform_fee_amount', 'REAL'],
+    ['net_amount',          'REAL'],
+  ] as [string, string][]) {
+    try { db.exec(`ALTER TABLE portal_offers ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
+  }
+
+  // ── Add currency to commissions ledger ─────────────────────────────────────
+  for (const [col, def] of [
+    ['currency',       "TEXT DEFAULT 'EGP'"],
+    ['offer_title',    'TEXT'],
+    ['influencer_id',  'TEXT'],
+    ['agency_id',      'TEXT'],
+    ['collected_at',   'TEXT'],
+  ] as [string, string][]) {
+    try { db.exec(`ALTER TABLE commissions ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
+  }
+
+  // ── Loyalty points ledger ───────────────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS loyalty_points (
+      id          TEXT PRIMARY KEY,
+      user_type   TEXT NOT NULL,   -- 'influencer' | 'agency' | 'fan' | 'brand'
+      user_id     TEXT NOT NULL,
+      action      TEXT NOT NULL,   -- e.g. 'offer_accepted', 'offer_completed', 'fan_request_fulfilled'
+      points      INTEGER NOT NULL DEFAULT 0,
+      reference_id TEXT,           -- linked offer/request/campaign ID
+      note        TEXT,
+      created_at  TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_loyalty_user ON loyalty_points(user_type, user_id);
+    CREATE INDEX IF NOT EXISTS idx_loyalty_action ON loyalty_points(action);
+  `);
+
+  // ── Subscription tiers config in settings ──────────────────────────────────
+  const revenueSettings: [string, string][] = [
+    ['platform_commission_pct', '10'],        // % taken from every accepted offer
+    ['subscription_free_max_influencers', '50'],
+    ['subscription_free_max_campaigns',   '3'],
+    ['subscription_growth_price_egp',     '1499'],
+    ['subscription_pro_price_egp',        '2999'],
+    ['subscription_enterprise_price_egp', '5999'],
+  ];
+  for (const [key, value] of revenueSettings) {
+    db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+  }
+
   console.log('Database initialized successfully');
 }

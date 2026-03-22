@@ -7,7 +7,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Users, Megaphone, Settings, Compass, FileText,
   LayoutDashboard, ShieldCheck, BarChart2, Globe, Briefcase,
-  UserCheck, Star, CreditCard, GitMerge, Kanban, CalendarDays, Handshake,
+  UserCheck, Star, CreditCard, GitMerge, Kanban, CalendarDays, Handshake, TrendingUp, Trophy,
 } from 'lucide-react';
 import { cn } from '../../utils/helpers';
 import { useAuth } from '../../contexts/AuthContext';
@@ -19,11 +19,12 @@ const NAV_ITEMS: Record<UserRole | 'default', NavItem[]> = {
   platform_admin: [
     { to: '/admin/dashboard',   icon: LayoutDashboard, label: 'Dashboard'    },
     { to: '/admin/analytics',   icon: BarChart2,       label: 'Analytics'    },
+    { to: '/admin/revenue',     icon: TrendingUp,      label: 'Revenue'      },
     { to: '/admin/users',       icon: Users,           label: 'Users'        },
     { to: '/admin/influencers', icon: Star,            label: 'Influencers'  },
     { to: '/admin/agencies',    icon: Briefcase,       label: 'Agencies'     },
     { to: '/admin/brands',      icon: Globe,           label: 'Brands'       },
-    { to: '/admin/payments',    icon: BarChart2,       label: 'Payments'     },
+    { to: '/admin/payments',    icon: CreditCard,      label: 'Payments'     },
     { to: '/admin/deduplicate', icon: GitMerge,        label: 'Deduplicate'  },
     { to: '/admin/integrations',icon: ShieldCheck,     label: 'Integrations' },
     { to: '/admin/settings',    icon: Settings,        label: 'Settings'     },
@@ -34,13 +35,14 @@ const NAV_ITEMS: Record<UserRole | 'default', NavItem[]> = {
     { to: '/campaigns',   icon: Megaphone,        label: 'Campaigns'   },
     { to: '/pipeline',    icon: Kanban,           label: 'Pipeline'    },
     { to: '/calendar',    icon: CalendarDays,     label: 'Calendar'    },
-    { to: '/discover',    icon: Compass,        label: 'Discover'    },
-    { to: '/offers',      icon: FileText,       label: 'Offers'      },
-    { to: '/deals',       icon: Handshake,      label: 'Deals'       },
-    { to: '/payments',    icon: CreditCard,     label: 'Payments'    },
-    { to: '/billing',     icon: CreditCard,     label: 'Billing'     },
-    { to: '/deduplicate', icon: GitMerge,       label: 'Deduplicate' },
-    { to: '/settings',    icon: Settings,       label: 'Settings'    },
+    { to: '/discover',    icon: Compass,          label: 'Discover'    },
+    { to: '/offers',      icon: FileText,         label: 'Offers'      },
+    { to: '/deals',       icon: Handshake,        label: 'Deals'       },
+    { to: '/payments',    icon: CreditCard,       label: 'Payments'    },
+    { to: '/revenue',     icon: TrendingUp,       label: 'Revenue'     },
+    { to: '/billing',     icon: Star,             label: 'Billing'     },
+    { to: '/deduplicate', icon: GitMerge,         label: 'Deduplicate' },
+    { to: '/settings',    icon: Settings,         label: 'Settings'    },
   ],
   brand: [
     { to: '/brand/dashboard', icon: LayoutDashboard, label: 'Dashboard' },

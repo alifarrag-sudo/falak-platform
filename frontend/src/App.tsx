@@ -47,6 +47,7 @@ import AdminUsersPage from './pages/admin/AdminUsersPage';
 import AdminAnalyticsPage from './pages/admin/AdminAnalyticsPage';
 import AdminAgenciesPage from './pages/admin/AdminAgenciesPage';
 import AdminBrandsPage from './pages/admin/AdminBrandsPage';
+import RevenuePage from './pages/admin/RevenuePage';
 
 // Manager pages
 import ManagerDashboard from './pages/manager/ManagerDashboard';
@@ -70,6 +71,7 @@ import PortalOfferPage from './pages/portal/PortalOfferPage';
 import PortalProfilePage from './pages/portal/PortalProfilePage';
 import PortalConnectionsPage from './pages/portal/PortalConnectionsPage';
 import PortalFanRequestsPage from './pages/portal/PortalFanRequestsPage';
+import PortalLoyaltyPage from './pages/portal/PortalLoyaltyPage';
 
 // Fan Access
 import FanLoginPage from './pages/fan/FanLoginPage';
@@ -134,6 +136,7 @@ export default function App() {
           <Route path="profile"      element={<PortalProfilePage />} />
           <Route path="connections"  element={<PortalConnectionsPage />} />
           <Route path="fan-requests" element={<PortalFanRequestsPage />} />
+          <Route path="loyalty"      element={<PortalLoyaltyPage />} />
         </Route>
 
         {/* ── Fan Access ─────────────────────────────────────────────────── */}
@@ -160,6 +163,7 @@ export default function App() {
           <Route path="agencies"    element={<AdminAgenciesPage />} />
           <Route path="brands"      element={<AdminBrandsPage />} />
           <Route path="payments"    element={<PaymentsPage />} />
+          <Route path="revenue"     element={<RevenuePage />} />
           <Route path="analytics"    element={<AdminAnalyticsPage />} />
           <Route path="deduplicate"  element={<DeduplicatePage />} />
           <Route path="settings"     element={<SettingsPage />} />
@@ -207,6 +211,7 @@ export default function App() {
           <Route path="calendar"        element={<CampaignCalendarPage />} />
           <Route path="deals"           element={<DealTrackerPage />} />
           <Route path="billing"         element={<BillingPage />} />
+          <Route path="revenue"         element={<RevenuePage />} />
           <Route path="discover"        element={<DiscoverPage />} />
           <Route path="offers"          element={<OffersPage />} />
           <Route path="payments"        element={<PaymentsPage />} />

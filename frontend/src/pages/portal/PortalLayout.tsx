@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useNavigate, NavLink } from 'react-router-dom';
-import { Megaphone, User, LogOut, Link2, Heart } from 'lucide-react';
+import { Megaphone, User, LogOut, Link2, Heart, Trophy } from 'lucide-react';
 import { clearPortalToken, portalGetProfile } from '../../utils/api';
 import { cn } from '../../utils/helpers';
 
@@ -33,6 +33,7 @@ export default function PortalLayout() {
   const navItems = [
     { to: '/portal/dashboard',    icon: Megaphone, label: 'My Offers'    },
     { to: '/portal/fan-requests', icon: Heart,     label: 'Fan Requests' },
+    { to: '/portal/loyalty',      icon: Trophy,    label: 'Loyalty'      },
     { to: '/portal/connections',  icon: Link2,     label: 'Connections'  },
     { to: '/portal/profile',      icon: User,      label: 'Profile'      },
   ];

@@ -453,6 +453,19 @@ router.put('/:offerId/deliverables/:deliverableId/review', (req, res) => {
         .run(live_url, req.params.deliverableId);
     }
 
+    // Award loyalty points for completed offer
+    try {
+      if (reviewedOffer?.portal_user_id) {
+        db.prepare(`
+          INSERT INTO loyalty_points (id, user_type, user_id, action, points, reference_id, note)
+          VALUES (?, 'influencer', ?, 'offer_completed', 25, ?, 'Deliverable approved')
+        `).run(uuidv4() as P, reviewedOffer.portal_user_id as P, req.params.offerId as P);
+      }
+      // Mark commission as collected
+      db.prepare(`UPDATE commissions SET status = 'COLLECTED', collected_at = datetime('now') WHERE reference_id = ?`)
+        .run(req.params.offerId);
+    } catch { /* non-critical */ }
+
     // Notify the influencer (portal user) that their deliverable was approved
     try {
       if (reviewedOffer?.portal_user_id) {

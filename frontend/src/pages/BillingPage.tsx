@@ -12,49 +12,52 @@ import { cn } from '../utils/helpers';
 const PLANS = [
   {
     id: 'starter' as const,
-    name: 'Starter',
-    price: 'SAR 499',
+    name: 'Growth',
+    price: 'EGP 1,499',
     period: '/mo',
-    desc: 'For small agencies just getting started',
+    desc: 'For agencies launching their influencer practice',
     features: [
       'Up to 500 influencers',
-      '3 team users',
+      '3 team members',
       'Campaign management',
-      'Offer tracking',
+      'Offer tracking & creator portal',
       'CSV import / export',
       'Email notifications',
+      '10% platform commission',
     ],
   },
   {
     id: 'pro' as const,
     name: 'Pro',
-    price: 'SAR 999',
+    price: 'EGP 2,999',
     period: '/mo',
     desc: 'For growing agencies managing multiple brands',
     highlighted: true,
     features: [
-      'Up to 2,000 influencers',
-      '10 team users',
-      'Everything in Starter',
-      'API access',
-      'Advanced analytics',
-      'Influencer portal',
+      'Up to 5,000 influencers',
+      '15 team members',
+      'Everything in Growth',
+      'Discover & AI enrichment',
+      'Advanced analytics & reports',
+      'PDF brief generation',
+      '8% platform commission',
       'Priority support',
     ],
   },
   {
     id: 'enterprise' as const,
     name: 'Enterprise',
-    price: 'SAR 2,499',
+    price: 'EGP 5,999',
     period: '/mo',
-    desc: 'For large agencies and platforms',
+    desc: 'For large agencies and multi-brand platforms',
     features: [
       'Unlimited influencers',
-      'Unlimited team users',
+      'Unlimited team members',
       'Everything in Pro',
       'White-label branding',
       'Dedicated account manager',
-      'Custom integrations',
+      'Custom integrations & API',
+      '6% platform commission',
       'SLA guarantee',
     ],
   },
@@ -226,10 +229,14 @@ export default function BillingPage() {
       </div>
 
       {/* Note */}
-      <p className="text-xs text-gray-600 text-center">
-        Prices are in Saudi Riyal (SAR) and billed monthly. Cancel anytime from the billing portal.
-        Payments are processed securely via Stripe.
-      </p>
+      <div className="text-center space-y-1">
+        <p className="text-xs text-gray-600">
+          Prices are in Egyptian Pound (EGP) and billed monthly. Cancel anytime from the billing portal.
+        </p>
+        <p className="text-xs text-gray-600">
+          FALAK earns a commission on every offer accepted through the platform — lower tiers apply as you upgrade.
+        </p>
+      </div>
     </div>
   );
 }

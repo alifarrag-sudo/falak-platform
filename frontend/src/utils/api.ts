@@ -1032,4 +1032,70 @@ export const portalUpdateFanSettings = async (payload: Record<string, unknown>) 
   return data;
 };
 
+// ── Revenue (platform monetisation) ───────────────────────────────────────────
+export const getRevenueSummary = async () => {
+  const { data } = await api.get('/revenue/summary');
+  return data;
+};
+export const getRevenueCommissions = async (params?: Record<string, unknown>) => {
+  const { data } = await api.get('/revenue/commissions', { params });
+  return data;
+};
+export const collectCommission = async (id: string) => {
+  const { data } = await api.put(`/revenue/commissions/${id}/collect`);
+  return data;
+};
+export const getRevenueSettings = async () => {
+  const { data } = await api.get('/revenue/settings');
+  return data;
+};
+export const updateRevenueSettings = async (payload: Record<string, unknown>) => {
+  const { data } = await api.put('/revenue/settings', payload);
+  return data;
+};
+export const getRevenueBreakdown = async () => {
+  const { data } = await api.get('/revenue/offer-breakdown');
+  return data;
+};
+
+// ── Loyalty programme ──────────────────────────────────────────────────────────
+export const getMyLoyalty = async () => {
+  const { data } = await api.get('/loyalty/me');
+  return data;
+};
+export const getLoyaltyHistory = async () => {
+  const { data } = await api.get('/loyalty/history');
+  return data;
+};
+export const getLoyaltyLeaderboard = async (userType = 'influencer') => {
+  const { data } = await api.get('/loyalty/leaderboard', { params: { user_type: userType } });
+  return data;
+};
+export const getLoyaltyAll = async () => {
+  const { data } = await api.get('/loyalty/all');
+  return data;
+};
+export const awardLoyaltyPoints = async (payload: {
+  user_type: string; user_id: string; action: string; points: number; note?: string;
+}) => {
+  const { data } = await api.post('/loyalty/award', payload);
+  return data;
+};
+
+// Portal loyalty — hits /api/loyalty/* with the portal token (not /api/portal/loyalty)
+const loyaltyPortalApi = axios.create({ baseURL: '/api', timeout: 30000 });
+loyaltyPortalApi.interceptors.request.use(config => {
+  const token = localStorage.getItem('cp_portal_token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+export const portalGetMyLoyalty = async () => {
+  const { data } = await loyaltyPortalApi.get('/loyalty/me');
+  return data;
+};
+export const portalGetLoyaltyHistory = async () => {
+  const { data } = await loyaltyPortalApi.get('/loyalty/history');
+  return data;
+};
+
 export default api;

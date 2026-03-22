@@ -7,6 +7,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { createHash } from 'crypto';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { getDb } from '../db/schema';
 
@@ -15,8 +16,20 @@ type P = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fan_secret_change_in_production';
 
-function hashPassword(pw: string) {
+/** Legacy SHA-256 hash — used only for migration check */
+function legacyHash(pw: string) {
   return createHash('sha256').update(pw + 'fan_salt').digest('hex');
+}
+
+/** Verify password against stored hash (supports both bcrypt and legacy SHA-256) */
+async function verifyPassword(pw: string, stored: string): Promise<boolean> {
+  if (stored.startsWith('$2')) {
+    // bcrypt hash
+    return bcrypt.compare(pw, stored);
+  }
+  // Legacy SHA-256 — constant-time compare via bcrypt.compare timing isn't critical here since
+  // we'll upgrade immediately on success
+  return stored === legacyHash(pw);
 }
 
 // ── Auth middleware ────────────────────────────────────────────────────────────
@@ -42,7 +55,7 @@ const REQUEST_TYPES = ['shoutout', 'video_message', 'photo', 'meetup', 'live_cha
 // ── Fan Auth ──────────────────────────────────────────────────────────────────
 
 // POST /api/fan/auth/register
-router.post('/auth/register', (req, res) => {
+router.post('/auth/register', async (req, res) => {
   const { email, password, name, username } = req.body;
   if (!email?.trim() || !password?.trim()) {
     return res.status(400).json({ error: 'Email and password required' });
@@ -52,10 +65,11 @@ router.post('/auth/register', (req, res) => {
   if (existing) return res.status(400).json({ error: 'Email already registered' });
 
   const id = uuidv4();
+  const hash = await bcrypt.hash(String(password), 10);
   db.prepare(`
     INSERT INTO fan_users (id, email, password, name, username)
     VALUES (?, ?, ?, ?, ?)
-  `).run(id, email.trim().toLowerCase(), hashPassword(password), name?.trim() || null, username?.trim() || null);
+  `).run(id, email.trim().toLowerCase(), hash, name?.trim() || null, username?.trim() || null);
 
   const token = jwt.sign({ id, email: email.trim().toLowerCase(), name: name?.trim(), type: 'fan' }, JWT_SECRET, { expiresIn: '30d' });
   const user = db.prepare('SELECT id, email, name, username, created_at FROM fan_users WHERE id = ?').get(id as P);
@@ -63,16 +77,26 @@ router.post('/auth/register', (req, res) => {
 });
 
 // POST /api/fan/auth/login
-router.post('/auth/login', (req, res) => {
+router.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email?.trim() || !password?.trim()) {
     return res.status(400).json({ error: 'Email and password required' });
   }
   const db = getDb();
   const user = db.prepare('SELECT * FROM fan_users WHERE email = ?').get(email.trim().toLowerCase() as P) as Record<string, unknown> | undefined;
-  if (!user || user.password !== hashPassword(password)) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+
+  const valid = await verifyPassword(String(password), String(user.password));
+  if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+
+  // Upgrade legacy SHA-256 hash to bcrypt on first successful login
+  if (!String(user.password).startsWith('$2')) {
+    try {
+      const newHash = await bcrypt.hash(String(password), 10);
+      db.prepare('UPDATE fan_users SET password = ? WHERE id = ?').run(newHash, user.id as P);
+    } catch { /* non-critical, will retry next login */ }
   }
+
   const token = jwt.sign({ id: user.id, email: user.email, name: user.name, type: 'fan' }, JWT_SECRET, { expiresIn: '30d' });
   const { password: _, ...safeUser } = user;
   res.json({ token, user: safeUser });
