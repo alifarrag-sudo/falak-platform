@@ -689,6 +689,193 @@ Content Format:
     db.prepare("UPDATE portal_offers SET portal_user_id = ? WHERE influencer_id = ?").run(pu.id as P, influencers[0].id as P);
   }
 
+  /* ── A. Set sent_at + created_by on offers ───────────────────────────────── */
+  const agencyUser = db.prepare("SELECT id FROM users WHERE email = 'agency@demo.falak.io'").get() as { id: string } | undefined;
+  if (agencyUser) {
+    db.prepare(`
+      UPDATE portal_offers SET sent_at = datetime('now', '-2 days')
+      WHERE status IN ('sent', 'accepted', 'in_progress', 'submitted', 'completed')
+        AND sent_at IS NULL
+    `).run();
+    db.prepare(`UPDATE portal_offers SET created_by = ?`).run(agencyUser.id as P);
+    console.log('\n  ✓ Set sent_at and created_by on portal_offers');
+  }
+
+  /* ── B. Commissions (revenue dashboard demo) ─────────────────────────────── */
+  console.log('\n── Commissions ─────────────────────────────────────────────');
+  const commissions = [
+    {
+      id: uuidv4(), transaction_type: 'offer_commission', reference_id: offers[4].id,
+      offer_title: offers[4].title, influencer_id: influencers[4].id,
+      agency_id: agencyUser?.id ?? null,
+      gross_amount: 12000, commission_rate: 10, commission_amount: 1200, net_amount: 10800,
+      currency: 'EGP', status: 'COLLECTED', collected_at: "datetime('now')",
+    },
+    {
+      id: uuidv4(), transaction_type: 'offer_commission', reference_id: offers[5].id,
+      offer_title: offers[5].title, influencer_id: influencers[5].id,
+      agency_id: agencyUser?.id ?? null,
+      gross_amount: 3800, commission_rate: 10, commission_amount: 380, net_amount: 3420,
+      currency: 'EGP', status: 'COLLECTED', collected_at: "datetime('now')",
+    },
+    {
+      id: uuidv4(), transaction_type: 'offer_commission', reference_id: offers[2].id,
+      offer_title: offers[2].title, influencer_id: influencers[1].id,
+      agency_id: agencyUser?.id ?? null,
+      gross_amount: 55000, commission_rate: 10, commission_amount: 5500, net_amount: 49500,
+      currency: 'EGP', status: 'PENDING', collected_at: null,
+    },
+    {
+      id: uuidv4(), transaction_type: 'offer_commission', reference_id: offers[1].id,
+      offer_title: offers[1].title, influencer_id: influencers[0].id,
+      agency_id: agencyUser?.id ?? null,
+      gross_amount: 28000, commission_rate: 10, commission_amount: 2800, net_amount: 25200,
+      currency: 'EGP', status: 'PENDING', collected_at: null,
+    },
+  ];
+  try {
+    for (const c of commissions) {
+      if (c.collected_at) {
+        db.prepare(`
+          INSERT OR IGNORE INTO commissions
+            (id, transaction_type, reference_id, offer_title, influencer_id, agency_id,
+             gross_amount, commission_rate, commission_amount, net_amount, currency, status, collected_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `).run(
+          c.id as P, c.transaction_type as P, c.reference_id as P, c.offer_title as P,
+          c.influencer_id as P, c.agency_id as P,
+          c.gross_amount as P, c.commission_rate as P, c.commission_amount as P,
+          c.net_amount as P, c.currency as P, c.status as P,
+        );
+      } else {
+        db.prepare(`
+          INSERT OR IGNORE INTO commissions
+            (id, transaction_type, reference_id, offer_title, influencer_id, agency_id,
+             gross_amount, commission_rate, commission_amount, net_amount, currency, status, collected_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        `).run(
+          c.id as P, c.transaction_type as P, c.reference_id as P, c.offer_title as P,
+          c.influencer_id as P, c.agency_id as P,
+          c.gross_amount as P, c.commission_rate as P, c.commission_amount as P,
+          c.net_amount as P, c.currency as P, c.status as P,
+        );
+      }
+      console.log(`  + [${c.status.padEnd(9)}] ${c.offer_title} — EGP ${c.commission_amount.toLocaleString()} commission`);
+    }
+  } catch (err) {
+    console.log('  ⚠ commissions table not ready yet, skipping');
+  }
+
+  /* ── C. Loyalty points (creator portal — Silver tier) ────────────────────── */
+  console.log('\n── Loyalty Points ──────────────────────────────────────────');
+  const loyaltyEntries = [
+    { id: uuidv4(), action: 'offer_accepted', points: 10, reference_id: offers[0].id, note: 'Offer accepted: Summer Glow' },
+    { id: uuidv4(), action: 'offer_accepted', points: 10, reference_id: offers[1].id, note: 'Offer accepted: Ramadan Campaign' },
+    { id: uuidv4(), action: 'offer_completed', points: 25, reference_id: offers[4].id, note: 'Offer completed: Noon Flash Sale Yasmine' },
+    { id: uuidv4(), action: 'offer_accepted', points: 10, reference_id: offers[2].id, note: 'Offer accepted: Ramadan Karim' },
+    { id: uuidv4(), action: 'offer_completed', points: 25, reference_id: offers[5].id, note: 'Offer completed: Noon Flash Sale Hassan' },
+    { id: uuidv4(), action: 'offer_accepted', points: 10, reference_id: offers[3].id, note: 'Offer accepted: Ramadan Nour' },
+  ];
+  for (const lp of loyaltyEntries) {
+    try {
+      db.prepare(`
+        INSERT OR IGNORE INTO loyalty_points (id, user_type, user_id, action, points, reference_id, note)
+        VALUES (?, 'influencer', ?, ?, ?, ?, ?)
+      `).run(lp.id as P, portalId as P, lp.action as P, lp.points as P, lp.reference_id as P, lp.note as P);
+      console.log(`  + ${lp.action} (+${lp.points} pts) — ${lp.note}`);
+    } catch {
+      console.log('  ⚠ loyalty_points table not ready yet, skipping');
+    }
+  }
+
+  /* ── D. Offer messages (messaging demo) ──────────────────────────────────── */
+  console.log('\n── Offer Messages ──────────────────────────────────────────');
+  const offerMessages = [
+    {
+      id: uuidv4(), offer_id: offers[1].id, sender_type: 'agency', sender_id: agencyUser?.id ?? '',
+      body: "Hi Salma! We're excited to work with you on the Ramadan campaign. Quick note on the brief — the iftar scene should ideally show the full Juhayna product range if possible. Let us know if you need anything! 🌙",
+    },
+    {
+      id: uuidv4(), offer_id: offers[1].id, sender_type: 'influencer', sender_id: portalId,
+      body: "Thanks! I've reviewed the brief carefully. Happy to show the full range — I'm thinking a beautiful iftar spread with the yoghurt and juice. Will send a shot list for approval before I start filming. Should I also tag @Juhayna in the feed posts?",
+    },
+    {
+      id: uuidv4(), offer_id: offers[1].id, sender_type: 'agency', sender_id: agencyUser?.id ?? '',
+      body: "Yes, please tag @juhayna.eg on the feed posts. Looks like a great creative direction! Send the shot list when ready and we'll confirm within 24 hours. 🙌",
+    },
+  ];
+  try {
+    for (const msg of offerMessages) {
+      db.prepare(`
+        INSERT OR IGNORE INTO offer_messages (id, offer_id, sender_type, sender_id, body)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(msg.id as P, msg.offer_id as P, msg.sender_type as P, msg.sender_id as P, msg.body as P);
+      console.log(`  + [${msg.sender_type.padEnd(10)}] ${msg.body.slice(0, 60)}…`);
+    }
+  } catch {
+    console.log('  ⚠ offer_messages table not ready yet, skipping');
+  }
+
+  /* ── E. Fan request (fulfilled with shareable delivery page) ──────────────── */
+  console.log('\n── Fan Request (Fulfilled) ──────────────────────────────────');
+  try {
+    const fanUser = db.prepare("SELECT id FROM fan_users WHERE email = 'fan@demo.falak.io'").get() as { id: string } | undefined;
+    if (fanUser) {
+      const fanReqId = uuidv4();
+      const SHARE_TOKEN = 'demodemolivefandelivery2026xx';
+      db.prepare(`
+        INSERT OR IGNORE INTO fan_requests
+          (id, fan_user_id, influencer_id, request_type, title, message, budget, currency,
+           status, influencer_note, delivery_url, delivery_note, share_token, fan_email,
+           submitted_at, responded_at, fulfilled_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                datetime('now', '-10 days'), datetime('now', '-9 days'), datetime('now', '-8 days'))
+      `).run(
+        fanReqId as P,
+        fanUser.id as P,
+        influencers[0].id as P,
+        'video_message' as P,
+        'Birthday video for my sister Nadia 🎂' as P,
+        "Hi Salma! My sister Nadia is your biggest fan and her birthday is this Friday. Could you record a short video wishing her happy birthday and mentioning she's been following you since 2022? Would mean the world to her!" as P,
+        1500 as P, 'EGP' as P, 'fulfilled' as P,
+        'What a sweet request! Happy to do this for Nadia 💛' as P,
+        'https://www.tiktok.com/@salma.elmasry' as P,
+        'Nadia — Happy Birthday from Cairo! 🎉 You\'ve been such a wonderful supporter and I hope this year brings you everything you\'ve been wishing for! Keep shining! — سلمى 💛' as P,
+        SHARE_TOKEN as P,
+        'fan@demo.falak.io' as P,
+      );
+      console.log(`  + Fan request: Birthday video for Nadia (fulfilled)`);
+      console.log(`  + Share token: ${SHARE_TOKEN}`);
+      console.log(`  + Delivery URL: /fan/delivery/${SHARE_TOKEN}`);
+    }
+  } catch {
+    console.log('  ⚠ fan_requests table not ready / missing columns, skipping');
+  }
+
+  /* ── F. Offer ratings ────────────────────────────────────────────────────── */
+  console.log('\n── Offer Ratings ───────────────────────────────────────────');
+  try {
+    const ratings = [
+      {
+        id: uuidv4(), offer_id: offers[4].id, rater_type: 'agency', rater_id: agencyUser?.id ?? '',
+        rating: 5, review: "Yasmine delivered outstanding content — the Ramadan aesthetic was spot on, engagement was 3× our benchmark. Promo code visible within the first 2 seconds exactly as briefed. Would absolutely work with her again!",
+      },
+      {
+        id: uuidv4(), offer_id: offers[5].id, rater_type: 'agency', rater_id: agencyUser?.id ?? '',
+        rating: 4, review: "Solid tech content from Hassan, CTR on the promo link was above average. Minor note: the hook could have been stronger, but the product integration felt authentic. Great overall.",
+      },
+    ];
+    for (const r of ratings) {
+      db.prepare(`
+        INSERT OR IGNORE INTO offer_ratings (id, offer_id, rater_type, rater_id, rating, review)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(r.id as P, r.offer_id as P, r.rater_type as P, r.rater_id as P, r.rating as P, r.review as P);
+      console.log(`  + [${r.rating}★] ${r.offer_id === offers[4].id ? 'Yasmine Farouk' : 'Hassan Gamal'} — ${r.review.slice(0, 50)}…`);
+    }
+  } catch {
+    console.log('  ⚠ offer_ratings table not ready yet, skipping');
+  }
+
   /* ── Offer Templates ──────────────────────────────────────────────────────── */
   console.log('\n── Offer Templates ─────────────────────────────────────────');
   const templates = [
@@ -732,7 +919,11 @@ Content Format:
   console.log('  └─────────────────────┴────────────────────────────┴────────────────┘');
   console.log('');
   console.log('  Data: 12 Egyptian influencers · 3 campaigns · 7 offers · EGP pricing');
+  console.log('        4 commissions (2 COLLECTED · 2 PENDING) · 100 loyalty pts (Silver)');
+  console.log('        3 offer messages · 1 fulfilled fan request · 2 offer ratings');
   console.log('  URLs: / (admin) · /portal/login (creator) · /fan (fan access)');
+  console.log('  Fan delivery demo: /fan/delivery/demodemolivefandelivery2026xx');
+  console.log('  Share token: demodemolivefandelivery2026xx');
   console.log('═══════════════════════════════════════════════════════════════\n');
 }
 
