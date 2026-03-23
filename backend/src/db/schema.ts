@@ -1006,34 +1006,33 @@ export function initializeDatabase(): void {
   }
 
   // ── In-app messaging per offer ──────────────────────────────────────────────
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS offer_messages (
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS offer_messages (
       id          TEXT PRIMARY KEY,
       offer_id    TEXT NOT NULL,
-      sender_type TEXT NOT NULL,   -- 'agency' | 'influencer'
+      sender_type TEXT NOT NULL,
       sender_id   TEXT NOT NULL,
       body        TEXT NOT NULL,
       read_at     TEXT,
       created_at  TEXT DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_offer_messages_offer ON offer_messages(offer_id);
-    CREATE INDEX IF NOT EXISTS idx_offer_messages_created ON offer_messages(created_at);
-  `);
+    )`);
+  } catch { /* already exists */ }
+  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_offer_messages_offer ON offer_messages(offer_id)`); } catch { /* already exists */ }
+  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_offer_messages_created ON offer_messages(created_at)`); } catch { /* already exists */ }
 
   // ── Post-campaign ratings ───────────────────────────────────────────────────
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS offer_ratings (
-      id              TEXT PRIMARY KEY,
-      offer_id        TEXT NOT NULL UNIQUE,
-      rater_type      TEXT NOT NULL,   -- 'agency'
-      rater_id        TEXT NOT NULL,
-      rating          INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
-      review          TEXT,
-      created_at      TEXT DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_offer_ratings_offer ON offer_ratings(offer_id);
-    CREATE INDEX IF NOT EXISTS idx_offer_ratings_influencer ON offer_ratings(offer_id);
-  `);
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS offer_ratings (
+      id         TEXT PRIMARY KEY,
+      offer_id   TEXT NOT NULL UNIQUE,
+      rater_type TEXT NOT NULL,
+      rater_id   TEXT NOT NULL,
+      rating     INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+      review     TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
+  } catch { /* already exists */ }
+  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_offer_ratings_offer ON offer_ratings(offer_id)`); } catch { /* already exists */ }
 
   console.log('Database initialized successfully');
 }
