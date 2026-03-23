@@ -302,7 +302,7 @@
     <!-- Note -->
     <p style="font-size: 11px; color: #444; line-height: 1.7; text-align: center;">
       This is a fully functional live environment. All data is synthetic and resets periodically.<br>
-      Try the shareable fan delivery page: <code style="color:#e8c97a;background:#1a1a1a;padding:2px 6px;border-radius:4px">/fan/delivery/demodemolivefandelivery2026xx</code><br>
+      Try the shareable fan delivery page: <a href="https://falakdemo.netlify.app/fan/delivery/demodemolivefandelivery2026xx" target="_blank" style="color:#e8c97a;background:#1a1a1a;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:11px;text-decoration:none;">falakdemo.netlify.app/fan/delivery/demodemo…</a><br>
       Social API connections require your own developer credentials (Admin → Settings → Integrations).
     </p>
 
@@ -319,7 +319,7 @@
   // Inject the actual demo URL when served from a real domain
   const DEMO_BASE = window.location.origin !== 'null' && !window.location.href.startsWith('file:')
     ? window.location.origin
-    : 'https://YOUR-DEMO-URL.onrender.com';
+    : 'https://falakdemo.netlify.app';
 
   document.getElementById('url-admin').href   = DEMO_BASE + '/';
   document.getElementById('url-admin').textContent = DEMO_BASE.replace('https://','') + '/';
