@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FALAK Mobile App — Investor Demo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #080808;
+    color: #e5e5e5;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+  }
+
+  .card {
+    background: #111111;
+    border: 1px solid #2a2a2a;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 700px;
+    overflow: hidden;
+  }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #111111 0%, #1a1500 100%);
+    border-bottom: 1px solid #2a2a2a;
+    padding: 40px 48px 32px;
+    text-align: center;
+  }
+  .logo-ring {
+    width: 64px; height: 64px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #d4a017, #e8c97a);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 16px;
+    font-family: serif; font-size: 32px; color: #080808; font-weight: 700;
+  }
+  .brand { font-size: 28px; font-weight: 700; color: #fff; letter-spacing: 4px; }
+  .brand-sub { font-size: 11px; color: #6b6b6b; letter-spacing: 3px; text-transform: uppercase; margin-top: 4px; }
+  .tagline {
+    margin-top: 16px;
+    font-size: 14px;
+    color: #aaa;
+    line-height: 1.6;
+  }
+  .tagline strong { color: #e8c97a; }
+
+  .platform-badges {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 16px;
+  }
+  .platform-badge {
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 600;
+  }
+  .badge-ios { background: #1a1f2e; color: #60a5fa; border: 1px solid #2563eb44; }
+  .badge-android { background: #0a2a1a; color: #4ade80; border: 1px solid #16a34a44; }
+  .badge-expo { background: #1a1a2e; color: #a78bfa; border: 1px solid #7c3aed44; }
+
+  /* Body */
+  .body { padding: 40px 48px; }
+
+  .section-label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #555;
+    margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-label::after {
+    content: ''; flex: 1; height: 1px; background: #2a2a2a;
+  }
+
+  /* Step 1 — Download Expo Go */
+  .download-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 36px;
+  }
+  .download-card {
+    background: #0d0d0d;
+    border: 1px solid #222;
+    border-radius: 14px;
+    padding: 24px 20px;
+    text-align: center;
+  }
+  .download-card:hover { border-color: #c9a84c33; }
+  .download-icon { font-size: 28px; margin-bottom: 12px; }
+  .download-title { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+  .download-sub { font-size: 11px; color: #555; margin-bottom: 16px; }
+  .qr-wrapper {
+    background: #fff;
+    border-radius: 10px;
+    padding: 10px;
+    display: inline-block;
+    margin-bottom: 12px;
+  }
+  .qr-wrapper img { display: block; border-radius: 4px; }
+  .store-link {
+    display: inline-block;
+    font-size: 11px;
+    color: #c9a84c;
+    text-decoration: none;
+    background: #c9a84c12;
+    border: 1px solid #c9a84c33;
+    padding: 5px 14px;
+    border-radius: 6px;
+  }
+  .store-link:hover { background: #c9a84c22; }
+
+  /* Step 2 — Open in Expo Go */
+  .app-qr-section {
+    background: linear-gradient(135deg, #0f0f1a, #1a1000);
+    border: 1px solid #2a2a3a;
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 36px;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+  }
+  .app-qr-box {
+    flex-shrink: 0;
+    text-align: center;
+  }
+  .app-qr-box .qr-wrapper { margin-bottom: 8px; }
+  .app-qr-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+  .app-details { flex: 1; }
+  .app-details h3 { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+  .app-details p { font-size: 13px; color: #888; line-height: 1.6; margin-bottom: 16px; }
+  .app-url {
+    font-family: monospace;
+    font-size: 12px;
+    color: #e8c97a;
+    background: #1a1400;
+    border: 1px solid #c9a84c33;
+    padding: 8px 14px;
+    border-radius: 8px;
+    display: block;
+    word-break: break-all;
+    margin-bottom: 12px;
+  }
+  .update-notice {
+    font-size: 11px;
+    color: #c9a84c;
+    background: #1a1000;
+    border: 1px solid #c9a84c22;
+    border-radius: 8px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* Step 3 — Demo accounts */
+  .accounts-grid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 36px; }
+  .account-row {
+    background: #0d0d0d;
+    border: 1px solid #1e1e1e;
+    border-radius: 10px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .role-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .dot-agency { background: #e8c97a; }
+  .dot-creator { background: #38bdf8; }
+  .account-info { flex: 1; }
+  .account-email { font-size: 12px; color: #ddd; font-family: monospace; }
+  .account-role { font-size: 10px; color: #555; margin-top: 1px; }
+  .account-note { font-size: 11px; color: #444; }
+
+  /* Screens preview */
+  .screens-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 36px;
+  }
+  .screen-item {
+    background: #0d0d0d;
+    border: 1px solid #1e1e1e;
+    border-radius: 10px;
+    padding: 14px 10px;
+    text-align: center;
+  }
+  .screen-icon { font-size: 20px; margin-bottom: 6px; }
+  .screen-name { font-size: 10px; color: #888; font-weight: 500; }
+
+  /* Build info */
+  .build-box {
+    background: #0a0a0a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 36px;
+  }
+  .build-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid #1a1a1a;
+    font-size: 12px;
+  }
+  .build-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .build-key { color: #555; }
+  .build-val { color: #ddd; font-family: monospace; }
+  .build-val.gold { color: #e8c97a; }
+
+  /* Password */
+  .password-box {
+    background: #0a0a0a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 36px;
+  }
+  .password-label { font-size: 11px; color: #666; margin-bottom: 2px; }
+  .password-value { font-size: 18px; font-family: monospace; color: #e8c97a; letter-spacing: 2px; }
+  .copy-btn {
+    background: #c9a84c22;
+    border: 1px solid #c9a84c44;
+    color: #e8c97a;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background .15s;
+    white-space: nowrap;
+  }
+  .copy-btn:hover { background: #c9a84c33; }
+
+  /* Footer */
+  .footer {
+    border-top: 1px solid #1e1e1e;
+    padding: 24px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #0a0a0a;
+  }
+  .footer-brand { font-size: 12px; color: #444; }
+  .footer-brand span { color: #c9a84c; }
+  .footer-link { font-size: 12px; color: #666; text-decoration: none; }
+  .footer-link:hover { color: #c9a84c; }
+
+  @media (max-width: 580px) {
+    .header, .body { padding: 28px 20px; }
+    .footer { padding: 20px; flex-direction: column; gap: 8px; text-align: center; }
+    .download-grid { grid-template-columns: 1fr; }
+    .app-qr-section { flex-direction: column; text-align: center; }
+    .screens-grid { grid-template-columns: repeat(2, 1fr); }
+    .password-box { flex-direction: column; text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+
+  <div class="header">
+    <div class="logo-ring">ف</div>
+    <div class="brand">FALAK</div>
+    <div class="brand-sub">فلك · Mobile App</div>
+    <p class="tagline">
+      Egypt's influencer marketplace — now on mobile.<br>
+      <strong>iOS &amp; Android</strong> via Expo Go · React Native · EAS Build
+    </p>
+    <div class="platform-badges">
+      <span class="platform-badge badge-ios">iOS</span>
+      <span class="platform-badge badge-android">Android</span>
+      <span class="platform-badge badge-expo">Expo Go</span>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- Step 1 -->
+    <div class="section-label">Step 1 — Install Expo Go</div>
+    <div class="download-grid">
+      <div class="download-card">
+        <div class="download-icon">🍎</div>
+        <div class="download-title">iPhone / iPad</div>
+        <div class="download-sub">iOS 13+ required</div>
+        <div class="qr-wrapper">
+          <img
+            src="https://api.qrserver.com/v1/create-qr-code/?data=https%3A%2F%2Fapps.apple.com%2Fapp%2Fexpo-go%2Fid982107779&size=140x140&margin=0&color=000000&bgcolor=ffffff"
+            width="140" height="140" alt="App Store QR"
+          />
+        </div>
+        <br/>
+        <a class="store-link" href="https://apps.apple.com/app/expo-go/id982107779" target="_blank">
+          App Store →
+        </a>
+      </div>
+      <div class="download-card">
+        <div class="download-icon">🤖</div>
+        <div class="download-title">Android</div>
+        <div class="download-sub">Android 6.0+ required</div>
+        <div class="qr-wrapper">
+          <img
+            src="https://api.qrserver.com/v1/create-qr-code/?data=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dhost.exp.exponent&size=140x140&margin=0&color=000000&bgcolor=ffffff"
+            width="140" height="140" alt="Play Store QR"
+          />
+        </div>
+        <br/>
+        <a class="store-link" href="https://play.google.com/store/apps/details?id=host.exp.exponent" target="_blank">
+          Google Play →
+        </a>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="section-label">Step 2 — Open the FALAK App</div>
+    <div class="app-qr-section">
+      <div class="app-qr-box">
+        <div class="qr-wrapper" id="app-qr-container">
+          <!-- QR will be injected by script once URL is set -->
+          <img
+            id="app-qr-img"
+            src="https://api.qrserver.com/v1/create-qr-code/?data=https%3A%2F%2Fexpo.dev%2F%40falak%2Ffalak-platform&size=160x160&margin=0"
+            width="160" height="160" alt="FALAK App QR"
+          />
+        </div>
+        <div class="app-qr-label">Scan with Expo Go</div>
+      </div>
+      <div class="app-details">
+        <h3>FALAK Platform</h3>
+        <p>Open Expo Go, tap <strong style="color:#e8c97a">"Scan QR code"</strong>, and point your camera at the code to launch the app instantly — no install required.</p>
+        <code class="app-url" id="app-url-display"><!-- URL set below --></code>
+        <div class="update-notice" id="update-notice">
+          ⚠️ &nbsp;URL will be confirmed once the app is published. See footer for instructions.
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3 — Demo Credentials -->
+    <div class="section-label">Step 3 — Sign In</div>
+
+    <div class="password-box">
+      <div>
+        <div class="password-label">Universal password for all demo accounts</div>
+        <div class="password-value">Falak@Demo2026</div>
+      </div>
+      <button class="copy-btn" onclick="copy('Falak@Demo2026', this)">Copy</button>
+    </div>
+
+    <div class="accounts-grid">
+      <div class="account-row">
+        <div class="role-dot dot-agency"></div>
+        <div class="account-info">
+          <div class="account-email">agency@demo.falak.io</div>
+          <div class="account-role">Agency — Campaign management, Offers, Revenue dashboard</div>
+        </div>
+      </div>
+      <div class="account-row">
+        <div class="role-dot dot-creator"></div>
+        <div class="account-info">
+          <div class="account-email">creator@demo.falak.io</div>
+          <div class="account-role">Creator Portal — Offers, Deliverables, Loyalty tier, Messaging</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- App screens -->
+    <div class="section-label">What's in the App</div>
+    <div class="screens-grid">
+      <div class="screen-item">
+        <div class="screen-icon">📋</div>
+        <div class="screen-name">Campaign List</div>
+      </div>
+      <div class="screen-item">
+        <div class="screen-icon">✨</div>
+        <div class="screen-name">Create Campaign</div>
+      </div>
+      <div class="screen-item">
+        <div class="screen-icon">📩</div>
+        <div class="screen-name">My Offers</div>
+      </div>
+      <div class="screen-item">
+        <div class="screen-icon">❤️</div>
+        <div class="screen-name">Fan Requests</div>
+      </div>
+      <div class="screen-item">
+        <div class="screen-icon">👤</div>
+        <div class="screen-name">Creator Profile</div>
+      </div>
+      <div class="screen-item">
+        <div class="screen-icon">🔔</div>
+        <div class="screen-name">Notifications</div>
+      </div>
+      <div class="screen-item">
+        <div class="screen-icon">🔗</div>
+        <div class="screen-name">Social Connect</div>
+      </div>
+      <div class="screen-item">
+        <div class="screen-icon">📊</div>
+        <div class="screen-name">Analytics</div>
+      </div>
+    </div>
+
+    <!-- Technical build info -->
+    <div class="section-label">Technical Details</div>
+    <div class="build-box">
+      <div class="build-row">
+        <span class="build-key">Framework</span>
+        <span class="build-val">React Native + Expo SDK 52</span>
+      </div>
+      <div class="build-row">
+        <span class="build-key">Navigation</span>
+        <span class="build-val">Expo Router (file-based)</span>
+      </div>
+      <div class="build-row">
+        <span class="build-key">Styling</span>
+        <span class="build-val">NativeWind (Tailwind for RN)</span>
+      </div>
+      <div class="build-row">
+        <span class="build-key">iOS Bundle ID</span>
+        <span class="build-val">io.falak.platform</span>
+      </div>
+      <div class="build-row">
+        <span class="build-key">Android Package</span>
+        <span class="build-val">io.falak.platform</span>
+      </div>
+      <div class="build-row">
+        <span class="build-key">Expo Slug</span>
+        <span class="build-val gold">falak-platform</span>
+      </div>
+      <div class="build-row">
+        <span class="build-key">Production Build</span>
+        <span class="build-val">EAS Build (APK / IPA on request)</span>
+      </div>
+    </div>
+
+    <!-- Note -->
+    <p style="font-size: 11px; color: #444; line-height: 1.8; text-align: center;">
+      The mobile app connects to the same live backend as the web platform.<br>
+      All data is shared in real time — actions taken in the app appear immediately on the web dashboard.<br>
+      <span style="color:#555">For production APK / IPA builds, contact <a href="mailto:invest@falak.io" style="color:#c9a84c">invest@falak.io</a></span>
+    </p>
+
+  </div>
+
+  <div class="footer">
+    <span class="footer-brand"><span>FALAK</span> · فلك · Mobile Demo</span>
+    <a class="footer-link" href="investor-demo-access.html">← Web Platform Demo</a>
+    <a class="footer-link" href="mailto:invest@falak.io">invest@falak.io</a>
+  </div>
+
+</div>
+
+<script>
+  // ── App URL configuration ─────────────────────────────────────────────────
+  // UPDATE THIS when you run: npx expo publish  (or eas update)
+  // It will look like: exp://u.expo.dev/your-project-id  OR  https://expo.dev/@your-account/falak-platform
+  const APP_EXPO_URL = 'REPLACE_WITH_EXPO_URL_AFTER_PUBLISH';
+
+  const urlDisplay = document.getElementById('app-url-display');
+  const qrImg = document.getElementById('app-qr-img');
+  const notice = document.getElementById('update-notice');
+
+  if (APP_EXPO_URL && APP_EXPO_URL !== 'REPLACE_WITH_EXPO_URL_AFTER_PUBLISH') {
+    urlDisplay.textContent = APP_EXPO_URL;
+    qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(APP_EXPO_URL)}&size=160x160&margin=0`;
+    notice.style.display = 'none';
+  } else {
+    urlDisplay.textContent = 'exp://u.expo.dev/[project-id] — update after publishing';
+    urlDisplay.style.color = '#555';
+  }
+
+  function copy(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = orig, 2000);
+    });
+  }
+</script>
+
+</body>
+</html>
