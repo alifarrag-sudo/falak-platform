@@ -8,6 +8,7 @@ import {
   Users, Megaphone, Settings, Compass, FileText,
   LayoutDashboard, ShieldCheck, BarChart2, Globe, Briefcase,
   UserCheck, Star, CreditCard, GitMerge, Kanban, CalendarDays, Handshake, TrendingUp, Trophy,
+  X,
 } from 'lucide-react';
 import { cn } from '../../utils/helpers';
 import { useAuth } from '../../contexts/AuthContext';
@@ -87,7 +88,12 @@ function FalakLogo({ size = 32 }: { size?: number }) {
   );
 }
 
-export default function Sidebar() {
+interface SidebarProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { user } = useAuth();
   const navItems = user
     ? (NAV_ITEMS[user.role] || NAV_ITEMS.default)
@@ -103,10 +109,17 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="w-60 bg-[#161616] border-r border-surface-border flex flex-col shrink-0">
+    <aside className={cn(
+      'bg-[#161616] border-r border-surface-border flex flex-col shrink-0 transition-transform duration-200',
+      // Desktop: always visible, fixed width
+      'md:relative md:translate-x-0 md:w-60',
+      // Mobile: fixed overlay, width 72, slide in/out
+      'fixed inset-y-0 left-0 w-72 z-50',
+      isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+    )}>
       {/* Logo */}
       <div className="h-16 flex items-center px-5 border-b border-surface-border">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-1">
           <FalakLogo size={30} />
           <div>
             <div className="text-sm font-bold leading-tight tracking-tight" style={{ color: '#e8c97a' }}>FALAK</div>
@@ -115,6 +128,12 @@ export default function Sidebar() {
             </div>
           </div>
         </div>
+        <button
+          className="ml-auto md:hidden p-1 text-gray-500 hover:text-white"
+          onClick={onClose}
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Navigation */}
@@ -123,6 +142,7 @@ export default function Sidebar() {
           <NavLink
             key={to}
             to={to}
+            onClick={onClose}
             className={({ isActive }) => cn('sidebar-link', isActive && 'active')}
           >
             <Icon className="w-4 h-4 shrink-0" />

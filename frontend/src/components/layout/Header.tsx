@@ -4,7 +4,7 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ChevronDown, LogOut, User, Settings } from 'lucide-react';
+import { ChevronDown, LogOut, User, Settings, Menu } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import NotificationBell from './NotificationBell';
 
@@ -101,7 +101,7 @@ function UserMenu() {
   );
 }
 
-export default function Header() {
+export default function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const { pathname } = useLocation();
   const { user } = useAuth();
   const base = '/' + pathname.split('/')[1];
@@ -109,6 +109,12 @@ export default function Header() {
 
   return (
     <header className="h-16 bg-[#161616] border-b border-surface-border flex items-center px-6 shrink-0 gap-4">
+      <button
+        onClick={onMenuClick}
+        className="md:hidden p-2 -ml-2 text-gray-400 hover:text-white transition-colors"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
       <h1 className="text-base font-semibold text-white tracking-tight flex-1">{title}</h1>
       <div className="flex items-center gap-2">
         <button
