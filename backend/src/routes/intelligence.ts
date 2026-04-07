@@ -60,7 +60,7 @@ router.post('/sync/:influencerId', requireAuth('platform_admin', 'agency', 'infl
 router.get('/audience/:influencerId', requireAuth('platform_admin', 'agency', 'brand', 'influencer'), (req, res) => {
   const db = getDb();
   const { influencerId } = req.params;
-  const { platform = 'instagram' } = req.query;
+  const platform = String(req.query.platform || 'instagram');
 
   const demographics = db.prepare('SELECT * FROM audience_demographics WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
   const quality = db.prepare('SELECT * FROM audience_quality WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
@@ -100,7 +100,7 @@ router.get('/audience/:influencerId', requireAuth('platform_admin', 'agency', 'b
 router.get('/content/:influencerId', requireAuth('platform_admin', 'agency', 'brand', 'influencer'), (req, res) => {
   const db = getDb();
   const { influencerId } = req.params;
-  const { platform = 'instagram' } = req.query;
+  const platform = String(req.query.platform || 'instagram');
 
   const content = db.prepare('SELECT * FROM content_performance WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
   const demo = phylloService.getDemoIntelligenceData(influencerId);
@@ -115,9 +115,9 @@ router.get('/content/:influencerId', requireAuth('platform_admin', 'agency', 'br
 /** GET /api/intelligence/sentiment/:influencerId — sentiment breakdown */
 router.get('/sentiment/:influencerId', requireAuth('platform_admin', 'agency', 'brand', 'influencer'), (req, res) => {
   const { influencerId } = req.params;
-  const { platform = 'instagram' } = req.query;
+  const platform = String(req.query.platform || 'instagram');
 
-  const sentiment = sentimentService.getLatestSentiment(influencerId, platform as string);
+  const sentiment = sentimentService.getLatestSentiment(influencerId, platform);
   const demo = phylloService.getDemoIntelligenceData(influencerId);
 
   res.json(sentiment ? { is_demo: false, ...sentiment } : { is_demo: true, ...(demo?.sentiment || {}) });
@@ -127,7 +127,7 @@ router.get('/sentiment/:influencerId', requireAuth('platform_admin', 'agency', '
 router.get('/full/:influencerId', requireAuth('platform_admin', 'agency', 'brand', 'influencer'), (req, res) => {
   const db = getDb();
   const { influencerId } = req.params;
-  const { platform = 'instagram' } = req.query;
+  const platform = String(req.query.platform || 'instagram');
 
   const parseJSON = (val: unknown) => {
     if (!val) return [];
@@ -138,7 +138,7 @@ router.get('/full/:influencerId', requireAuth('platform_admin', 'agency', 'brand
   const quality = db.prepare('SELECT * FROM audience_quality WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
   const interests = db.prepare('SELECT * FROM audience_interests WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
   const content = db.prepare('SELECT * FROM content_performance WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
-  const sentiment = sentimentService.getLatestSentiment(influencerId, platform as string);
+  const sentiment = sentimentService.getLatestSentiment(influencerId, platform);
   const phylloUser = db.prepare('SELECT phyllo_user_id FROM phyllo_users WHERE influencer_id = ?').get(influencerId) as Record<string, unknown> | undefined;
   const influencer = db.prepare('SELECT name_english, name_arabic, ig_followers, ig_engagement_rate, account_tier FROM influencers WHERE id = ?').get(influencerId) as Record<string, unknown> | undefined;
 

@@ -22,7 +22,8 @@ function authHeaders() {
   };
 }
 
-async function phylloFetch(path: string, options: RequestInit = {}) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function phylloFetch(path: string, options: RequestInit = {}): Promise<any> {
   const res = await fetch(`${PHYLLO_BASE}${path}`, {
     ...options,
     headers: { ...authHeaders(), ...(options.headers as Record<string, string> || {}) },
