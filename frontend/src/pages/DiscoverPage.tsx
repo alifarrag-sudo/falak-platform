@@ -16,8 +16,29 @@ const PLATFORMS = [
   { value: 'facebook',  label: 'Facebook' },
 ];
 
-const COUNTRIES = ['Saudi Arabia','UAE','Egypt','Kuwait','Bahrain','Oman','Qatar','Jordan','Lebanon','Morocco','Iraq','US','UK','Other'];
-const CATEGORIES = ['Food','Lifestyle','Fashion','Beauty','Tech','Travel','Fitness','Comedy','Gaming','Parenting','Business','Art','Music'];
+const COUNTRIES = [
+  // MENA
+  'Egypt','Saudi Arabia','UAE','Kuwait','Qatar','Bahrain','Oman','Jordan','Lebanon',
+  'Morocco','Tunisia','Algeria','Libya','Iraq','Sudan','Yemen','Palestine','Syria',
+  // Europe
+  'UK','France','Germany','Spain','Italy','Netherlands','Sweden','Belgium',
+  'Switzerland','Poland','Portugal','Greece','Turkey','Denmark','Norway','Finland',
+  // Americas
+  'US','Canada','Brazil','Mexico','Argentina','Colombia','Chile','Peru','Venezuela',
+  // Asia-Pacific
+  'India','Pakistan','Indonesia','Malaysia','Singapore','Philippines','Thailand',
+  'Vietnam','South Korea','Japan','China','Australia','New Zealand','Bangladesh',
+  // Africa
+  'Nigeria','South Africa','Kenya','Ghana','Tanzania','Ethiopia','Ivory Coast','Senegal',
+  // Global
+  'Global / Worldwide','Other',
+];
+const CATEGORIES = [
+  'Food','Lifestyle','Fashion','Beauty','Tech','Travel','Fitness','Comedy','Gaming',
+  'Parenting','Business','Art','Music','Sports','Health','Education','Entertainment',
+  'DIY & Crafts','Pets','Finance','Luxury','Cars','Photography','Dance','Motivation',
+  'News & Politics','Real Estate','Cooking','Skincare','Hair & Makeup',
+];
 const SORT_OPTIONS = [
   { value: 'followers_desc',   label: 'Most Followers' },
   { value: 'followers_asc',    label: 'Least Followers' },

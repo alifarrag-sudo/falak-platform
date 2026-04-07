@@ -366,7 +366,7 @@ export default function PublicProfilePage() {
           </p>
           <div className="flex gap-3 justify-center flex-wrap">
             <a
-              href={`mailto:hello@cp-nsm.com?subject=Collaboration%20Inquiry%20–%20${encodeURIComponent(name)}`}
+              href={`mailto:hello@falak.io?subject=Collaboration%20Inquiry%20–%20${encodeURIComponent(name)}`}
               className="inline-flex items-center gap-2 px-6 py-3 bg-white text-[#111] text-sm font-semibold rounded-xl hover:bg-gray-200 transition-colors"
             >
               <Share2 className="w-4 h-4" />

@@ -91,6 +91,9 @@ import PublicCreatorsPage from './pages/PublicCreatorsPage';
 // Deduplicate
 import DeduplicatePage from './pages/DeduplicatePage';
 
+// Audience Intelligence
+import IntelligencePage from './pages/IntelligencePage';
+
 // 404
 import NotFoundPage from './pages/NotFoundPage';
 
@@ -200,13 +203,18 @@ export default function App() {
           <Route path="earnings"  element={<ManagerEarningsPage />} />
         </Route>
 
-        {/* ── Agency / default dashboard (no auth guard in Phase 1) ─────── */}
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
+        {/* ── Agency / default dashboard ────────────────────────────────── */}
+        <Route path="/" element={
+          <RoleGuard>
+            <Layout />
+          </RoleGuard>
+        }>
+          <Route index element={<Navigate to="/login" replace />} />
           <Route path="dashboard"       element={<AgencyDashboard />} />
           <Route path="influencers"     element={<InfluencersPage />} />
           <Route path="influencers/:id" element={<InfluencerDetailPage />} />
-          <Route path="influencers/:id/mediakit" element={<InfluencerMediaKitPage />} />
+          <Route path="influencers/:id/mediakit"      element={<InfluencerMediaKitPage />} />
+          <Route path="intelligence/:id"             element={<IntelligencePage />} />
           <Route path="campaigns"       element={<CampaignsPage />} />
           <Route path="campaigns/:id"   element={<CampaignDetailPage />} />
           <Route path="campaigns/:id/report" element={<CampaignReportPage />} />

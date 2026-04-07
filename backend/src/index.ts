@@ -27,6 +27,10 @@ import revenueRouter from './routes/revenue';
 import loyaltyRouter from './routes/loyalty';
 import messagesRouter from './routes/messages';
 import ratingsRouter from './routes/ratings';
+import intelligenceRouter from './routes/intelligence';
+import agentRouter from './routes/agent';
+import adnetworkRouter from './routes/adnetwork';
+import outreachRouter from './routes/outreach';
 import { initSyncJobs } from './jobs/syncJobs';
 
 dotenv.config();
@@ -99,6 +103,10 @@ app.use('/api/revenue', revenueRouter);
 app.use('/api/loyalty', loyaltyRouter);
 app.use('/api/messages', messagesRouter);
 app.use('/api/ratings', ratingsRouter);
+app.use('/api/intelligence', intelligenceRouter);
+app.use('/api/agent', agentRouter);
+app.use('/api/adnetwork', adnetworkRouter);
+app.use('/api/outreach', outreachRouter);
 
 // Health check (both paths for compatibility with Railway/Render/ELB)
 const healthHandler = (_req: express.Request, res: express.Response) => {

@@ -23,3 +23,5 @@ services:
         value: https://falak-platform.onrender.com
       - key: FRONTEND_URL
         value: https://falak-platform.onrender.com
+      - key: SEED_DEMO
+        value: "true"

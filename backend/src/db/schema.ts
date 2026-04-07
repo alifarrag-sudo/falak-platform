@@ -1034,5 +1034,196 @@ export function initializeDatabase(): void {
   } catch { /* already exists */ }
   try { db.exec(`CREATE INDEX IF NOT EXISTS idx_offer_ratings_offer ON offer_ratings(offer_id)`); } catch { /* already exists */ }
 
+  // ── Phase A — Audience Intelligence Engine ──────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS phyllo_users (
+      id             TEXT PRIMARY KEY,
+      influencer_id  TEXT NOT NULL UNIQUE,
+      phyllo_user_id TEXT UNIQUE,
+      created_at     TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS audience_demographics (
+      id               TEXT PRIMARY KEY,
+      influencer_id    TEXT NOT NULL,
+      platform         TEXT NOT NULL,
+      age_13_17        REAL DEFAULT 0,
+      age_18_24        REAL DEFAULT 0,
+      age_25_34        REAL DEFAULT 0,
+      age_35_44        REAL DEFAULT 0,
+      age_45_plus      REAL DEFAULT 0,
+      gender_male      REAL DEFAULT 0,
+      gender_female    REAL DEFAULT 0,
+      top_countries    TEXT,
+      top_cities       TEXT,
+      updated_at       TEXT DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_audience_demo_unique ON audience_demographics(influencer_id, platform);
+
+    CREATE TABLE IF NOT EXISTS audience_quality (
+      id                      TEXT PRIMARY KEY,
+      influencer_id           TEXT NOT NULL,
+      platform                TEXT NOT NULL,
+      real_followers_pct      REAL DEFAULT 0,
+      suspicious_followers_pct REAL DEFAULT 0,
+      mass_followers_pct      REAL DEFAULT 0,
+      bot_score               REAL DEFAULT 0,
+      credibility_score       REAL DEFAULT 0,
+      audience_type           TEXT,
+      updated_at              TEXT DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_audience_quality_unique ON audience_quality(influencer_id, platform);
+
+    CREATE TABLE IF NOT EXISTS audience_interests (
+      id              TEXT PRIMARY KEY,
+      influencer_id   TEXT NOT NULL,
+      platform        TEXT NOT NULL,
+      interests       TEXT,
+      brand_affinities TEXT,
+      updated_at      TEXT DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_audience_interests_unique ON audience_interests(influencer_id, platform);
+
+    CREATE TABLE IF NOT EXISTS content_performance (
+      id              TEXT PRIMARY KEY,
+      influencer_id   TEXT NOT NULL,
+      platform        TEXT NOT NULL,
+      avg_likes       REAL DEFAULT 0,
+      avg_comments    REAL DEFAULT 0,
+      avg_views       REAL DEFAULT 0,
+      avg_shares      REAL DEFAULT 0,
+      avg_saves       REAL DEFAULT 0,
+      avg_reach       REAL DEFAULT 0,
+      avg_impressions REAL DEFAULT 0,
+      engagement_rate REAL DEFAULT 0,
+      top_posts       TEXT,
+      updated_at      TEXT DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_content_perf_unique ON content_performance(influencer_id, platform);
+
+    CREATE TABLE IF NOT EXISTS sentiment_analysis (
+      id                     TEXT PRIMARY KEY,
+      influencer_id          TEXT NOT NULL,
+      platform               TEXT NOT NULL,
+      post_id                TEXT,
+      positive_pct           REAL DEFAULT 0,
+      neutral_pct            REAL DEFAULT 0,
+      negative_pct           REAL DEFAULT 0,
+      troll_count            INTEGER DEFAULT 0,
+      spam_count             INTEGER DEFAULT 0,
+      genuine_fan_count      INTEGER DEFAULT 0,
+      top_positive_keywords  TEXT,
+      top_negative_keywords  TEXT,
+      analyzed_at            TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_sentiment_influencer ON sentiment_analysis(influencer_id, platform);
+  `);
+
+  // ── Phase B — AI Agent Engine tables ────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_briefings (
+      id            TEXT PRIMARY KEY,
+      influencer_id TEXT NOT NULL,
+      briefing_type TEXT NOT NULL DEFAULT 'weekly',
+      content       TEXT,
+      data_snapshot TEXT,
+      generated_at  TEXT DEFAULT (datetime('now')),
+      read_at       TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_briefings_influencer ON agent_briefings(influencer_id);
+
+    CREATE TABLE IF NOT EXISTS shadow_profiles (
+      id                 TEXT PRIMARY KEY,
+      name               TEXT,
+      handle             TEXT,
+      platform           TEXT,
+      follower_count     INTEGER DEFAULT 0,
+      category           TEXT,
+      country            TEXT,
+      profile_url        TEXT,
+      email              TEXT,
+      claim_status       TEXT DEFAULT 'unclaimed',
+      contact_attempts   INTEGER DEFAULT 0,
+      last_contacted_at  TEXT,
+      claim_token        TEXT UNIQUE,
+      influencer_id      TEXT REFERENCES influencers(id),
+      created_at         TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_shadow_profiles_status ON shadow_profiles(claim_status);
+    CREATE INDEX IF NOT EXISTS idx_shadow_profiles_platform ON shadow_profiles(platform);
+
+    CREATE TABLE IF NOT EXISTS outreach_log (
+      id                TEXT PRIMARY KEY,
+      shadow_profile_id TEXT NOT NULL REFERENCES shadow_profiles(id),
+      channel           TEXT NOT NULL DEFAULT 'email',
+      message_sent      TEXT,
+      sent_at           TEXT DEFAULT (datetime('now')),
+      response          TEXT,
+      responded_at      TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_outreach_log_profile ON outreach_log(shadow_profile_id);
+  `);
+
+  // ── Phase C — Ad Network tables ──────────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS custom_audiences (
+      id                   TEXT PRIMARY KEY,
+      campaign_id          TEXT,
+      agency_id            TEXT,
+      brand_id             TEXT,
+      audience_name        TEXT NOT NULL,
+      platform             TEXT NOT NULL,
+      audience_size        INTEGER DEFAULT 0,
+      match_rate           REAL DEFAULT 0,
+      status               TEXT DEFAULT 'building',
+      external_audience_id TEXT,
+      created_at           TEXT DEFAULT (datetime('now')),
+      synced_at            TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_custom_audiences_campaign ON custom_audiences(campaign_id);
+    CREATE INDEX IF NOT EXISTS idx_custom_audiences_agency ON custom_audiences(agency_id);
+
+    CREATE TABLE IF NOT EXISTS audience_members (
+      id                  TEXT PRIMARY KEY,
+      custom_audience_id  TEXT NOT NULL REFERENCES custom_audiences(id),
+      identifier_type     TEXT NOT NULL DEFAULT 'hashed_email',
+      identifier_value    TEXT NOT NULL,
+      source              TEXT,
+      added_at            TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_audience_members_audience ON audience_members(custom_audience_id);
+  `);
+
+  // ── Phase F — Fraud Detection ────────────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS fraud_alerts (
+      id            TEXT PRIMARY KEY,
+      influencer_id TEXT NOT NULL,
+      alert_type    TEXT NOT NULL,
+      severity      TEXT DEFAULT 'medium',
+      details       TEXT,
+      created_at    TEXT DEFAULT (datetime('now')),
+      reviewed_at   TEXT,
+      action_taken  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_fraud_alerts_influencer ON fraud_alerts(influencer_id);
+    CREATE INDEX IF NOT EXISTS idx_fraud_alerts_reviewed ON fraud_alerts(reviewed_at);
+  `);
+
+  // ── Phase B2 — Add AI matching columns to campaigns ──────────────────────────
+  for (const [col, def] of [
+    ['target_gender',          'TEXT'],
+    ['target_age_min',         'INTEGER'],
+    ['target_age_max',         'INTEGER'],
+    ['target_countries',       'TEXT'],
+    ['target_interests',       'TEXT'],
+    ['campaign_objective',     'TEXT'],
+    ['budget_per_influencer',  'REAL'],
+    ['ai_match_cache',         'TEXT'],
+    ['ai_match_generated_at',  'TEXT'],
+  ] as [string, string][]) {
+    try { db.exec(`ALTER TABLE campaigns ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
+  }
+
   console.log('Database initialized successfully');
 }

@@ -689,17 +689,14 @@ Content Format:
     db.prepare("UPDATE portal_offers SET portal_user_id = ? WHERE influencer_id = ?").run(pu.id as P, influencers[0].id as P);
   }
 
-  /* ── A. Set sent_at + created_by on offers ───────────────────────────────── */
+  /* ── A. Set sent_at on offers ────────────────────────────────────────────── */
+  db.prepare(`
+    UPDATE portal_offers SET sent_at = datetime('now', '-2 days')
+    WHERE status IN ('sent', 'accepted', 'in_progress', 'submitted', 'completed')
+      AND sent_at IS NULL
+  `).run();
+  console.log('\n  ✓ Set sent_at on portal_offers');
   const agencyUser = db.prepare("SELECT id FROM users WHERE email = 'agency@demo.falak.io'").get() as { id: string } | undefined;
-  if (agencyUser) {
-    db.prepare(`
-      UPDATE portal_offers SET sent_at = datetime('now', '-2 days')
-      WHERE status IN ('sent', 'accepted', 'in_progress', 'submitted', 'completed')
-        AND sent_at IS NULL
-    `).run();
-    db.prepare(`UPDATE portal_offers SET created_by = ?`).run(agencyUser.id as P);
-    console.log('\n  ✓ Set sent_at and created_by on portal_offers');
-  }
 
   /* ── B. Commissions (revenue dashboard demo) ─────────────────────────────── */
   console.log('\n── Commissions ─────────────────────────────────────────────');

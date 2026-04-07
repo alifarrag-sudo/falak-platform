@@ -1,0 +1,21 @@
+{
+  "name": "FALAK Influencer Platform",
+  "short_name": "FALAK",
+  "description": "Influencer marketing platform for the MENA region and beyond",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#d4a017",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "lang": "en",
+  "dir": "ltr"
+}

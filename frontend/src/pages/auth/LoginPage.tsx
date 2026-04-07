@@ -5,9 +5,23 @@
  */
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Eye, EyeOff, LogIn } from 'lucide-react';
+import { Eye, EyeOff, LogIn, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
+import { portalLogin, fanLogin } from '../../utils/api';
+
+type DemoAccount = {
+  label: string; emoji: string; desc: string;
+  type: 'main' | 'portal' | 'fan';
+  email: string; password: string; path: string;
+};
+
+const DEMO_ACCOUNTS: DemoAccount[] = [
+  { label: 'Admin',           emoji: '⚙️', desc: 'Platform control',  type: 'main',   email: 'admin@demo.falak.io',   password: 'Falak@Demo2026', path: '/admin/dashboard' },
+  { label: 'Agency',          emoji: '🏢', desc: 'Manage campaigns',  type: 'main',   email: 'agency@demo.falak.io',  password: 'Falak@Demo2026', path: '/influencers' },
+  { label: 'Content Creator', emoji: '🎬', desc: 'Creator portal',    type: 'portal', email: 'creator@demo.falak.io', password: 'Falak@Demo2026', path: '/portal/dashboard' },
+  { label: 'Fan',             emoji: '⭐', desc: 'Fan marketplace',   type: 'fan',    email: 'fan@demo.falak.io',     password: 'Falak@Demo2026', path: '/fan/discover' },
+];
 
 function FalakLogo() {
   return (
@@ -26,22 +40,40 @@ function FalakLogo() {
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, homePath } = useAuth();
+  const { login, logout, homePath } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [selectedDemo, setSelectedDemo] = useState<DemoAccount | null>(null);
+
+  // Clicking a demo card pre-fills credentials so user can review then press Sign In
+  const handleDemoSelect = (account: DemoAccount) => {
+    logout();
+    setEmail(account.email);
+    setPassword(account.password);
+    setSelectedDemo(account);
+    setShowPass(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) { toast.error('Email and password required'); return; }
     setLoading(true);
     try {
-      const user = await login(email, password);
-      toast.success(`Welcome back, ${user.display_name || user.email.split('@')[0]}!`);
-      // Redirect based on role
-      const home = homePath();
-      navigate(home, { replace: true });
+      if (selectedDemo?.type === 'portal') {
+        await portalLogin(email, password);
+        toast.success(`Welcome to the Creator Portal!`);
+        navigate(selectedDemo.path, { replace: true });
+      } else if (selectedDemo?.type === 'fan') {
+        await fanLogin(email, password);
+        toast.success(`Welcome to the Fan Marketplace!`);
+        navigate(selectedDemo.path, { replace: true });
+      } else {
+        const u = await login(email, password);
+        toast.success(`Welcome back, ${u.display_name || u.email.split('@')[0]}!`);
+        navigate(homePath(), { replace: true });
+      }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
         || 'Invalid email or password';
@@ -97,6 +129,37 @@ export default function LoginPage() {
               </Link>
             </div>
           </form>
+
+          {/* Demo quick access */}
+          <div className="border-t border-surface-border pt-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Zap className="w-3.5 h-3.5 text-yellow-400" />
+              <p className="text-xs text-gray-400 font-medium">Demo Access — try any role instantly</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {DEMO_ACCOUNTS.map(acc => {
+                const isSelected = selectedDemo?.label === acc.label;
+                return (
+                  <button
+                    key={acc.label}
+                    onClick={() => handleDemoSelect(acc)}
+                    disabled={loading}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all text-left disabled:opacity-50 ${
+                      isSelected
+                        ? 'bg-white/10 border-white/40 ring-1 ring-white/20'
+                        : 'bg-surface-overlay border-surface-border hover:border-white/20 hover:bg-surface-subtle'
+                    }`}
+                  >
+                    <span className="text-base leading-none">{acc.emoji}</span>
+                    <div>
+                      <p className="text-xs font-medium text-white">{acc.label}</p>
+                      <p className="text-[10px] text-gray-500">{acc.desc}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <div className="border-t border-surface-border pt-4 text-center space-y-2">
             <p className="text-xs text-gray-500">Don't have an account?</p>

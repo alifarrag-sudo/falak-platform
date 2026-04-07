@@ -84,7 +84,7 @@ export default function SettingsPage() {
         <SectionHeader icon={Building2} title="Company" />
         <div>
           <label className="label">Company Name</label>
-          <input className="input" placeholder="C&P" {...f('company_name')} />
+          <input className="input" placeholder="FALAK" {...f('company_name')} />
         </div>
         <div>
           <label className="label">Logo</label>

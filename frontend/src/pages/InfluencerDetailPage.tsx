@@ -5,7 +5,7 @@ import {
   ArrowLeft, Edit2, Save, X, Shield, Phone, Mail, MapPin,
   RefreshCw, ExternalLink, History, Megaphone, Plus, Send,
   CheckCircle2, AlertCircle, Clock, TrendingUp, Eye, Link2, UserPlus,
-  MessageCircle, Copy, QrCode,
+  MessageCircle, Copy, QrCode, Brain,
 } from 'lucide-react';
 import QRCodeSVG from 'react-qr-code';
 import toast from 'react-hot-toast';
@@ -211,6 +211,9 @@ export default function InfluencerDetailPage() {
           >
             <UserPlus className="w-4 h-4" /> Invite
           </button>
+          <Link to={`/intelligence/${id}`} className="btn-secondary btn-sm flex items-center gap-1.5">
+            <Brain className="w-4 h-4" /> Intelligence
+          </Link>
           <Link to={`/influencers/${id}/mediakit`} className="btn-secondary btn-sm flex items-center gap-1.5">
             <Eye className="w-4 h-4" /> Media Kit
           </Link>
@@ -352,7 +355,7 @@ export default function InfluencerDetailPage() {
                 onClick={() => {
                   const name = inf.name_english || inf.name_arabic || inf.ig_handle || 'there';
                   const handle = inf.ig_handle ? `@${inf.ig_handle}` : inf.tiktok_handle ? `@${inf.tiktok_handle}` : '';
-                  const msg = `Hi ${name}${handle ? ` (${handle})` : ''},\n\nI'm reaching out from C&P regarding a brand collaboration opportunity that we think would be a great fit for your content.\n\nWould you be open to hearing more details?\n\nLooking forward to hearing from you!`;
+                  const msg = `Hi ${name}${handle ? ` (${handle})` : ''},\n\nI'm reaching out from FALAK regarding a brand collaboration opportunity that we think would be a great fit for your content.\n\nWould you be open to hearing more details?\n\nLooking forward to hearing from you!`;
                   navigator.clipboard.writeText(msg).then(() => toast.success('Outreach message copied!')).catch(() => toast.error('Copy failed'));
                 }}
                 className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-white transition-colors"

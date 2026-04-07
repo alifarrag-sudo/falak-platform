@@ -4,7 +4,7 @@ import { Megaphone, User, LogOut, Link2, Heart, Trophy, Menu, X } from 'lucide-r
 import { clearPortalToken, portalGetProfile } from '../../utils/api';
 import { cn } from '../../utils/helpers';
 
-function CpLogo() {
+function FalakLogo() {
   return (
     <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
       <path d="M16 16 L16 2 A14 14 0 0 1 30 16 Z" fill="white" />
@@ -79,9 +79,9 @@ export default function PortalLayout() {
         sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
       )}>
         <div className="h-16 flex items-center px-4 border-b border-surface-border gap-3">
-          <CpLogo />
+          <FalakLogo />
           <div className="flex-1">
-            <div className="text-sm font-bold text-white leading-tight">C&amp;P Portal</div>
+            <div className="text-sm font-bold text-white leading-tight">FALAK Portal</div>
             <div className="text-[10px] text-gray-500 uppercase tracking-wider">Influencer</div>
           </div>
           <button

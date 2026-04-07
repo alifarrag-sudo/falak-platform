@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ExternalLink, CheckCircle2, XCircle, ChevronDown, ChevronUp, Copy, Check, Zap, Loader2 } from 'lucide-react';
 import { oauthConfigStatus } from '../../utils/api';
 
-const BACKEND = 'http://localhost:3001'; // Change to production URL when deploying
+const BACKEND = window.location.origin;
 
 const PLATFORMS = [
   {
@@ -28,7 +28,7 @@ const PLATFORMS = [
     notes: 'Requires a Facebook Business account. Your Instagram must be a Professional (Creator or Business) account linked to a Facebook Page.',
     steps: [
       { title: 'Create a Meta Developer Account', detail: 'Go to developers.facebook.com and click "Get Started". Verify your account with a phone number.' },
-      { title: 'Create a new App', detail: 'Click "Create App" → choose "Business" type → give it a name (e.g. "CP NSM Platform").' },
+      { title: 'Create a new App', detail: 'Click "Create App" → choose "Business" type → give it a name (e.g. "FALAK Platform").' },
       { title: 'Add Instagram Basic Display', detail: 'In your app dashboard, find "Add a Product" → add "Instagram Basic Display". Click "Set Up".' },
       { title: 'Add the Callback URL', detail: 'Under Instagram Basic Display → Settings, paste your callback URL into "Valid OAuth Redirect URIs".' },
       { title: 'Add test users', detail: 'Under Roles → Test Users, add the Instagram accounts you want to test with.' },
