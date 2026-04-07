@@ -8,7 +8,7 @@ import {
   Users, Megaphone, Settings, Compass, FileText,
   LayoutDashboard, ShieldCheck, BarChart2, Globe, Briefcase,
   UserCheck, Star, CreditCard, GitMerge, Kanban, CalendarDays, Handshake, TrendingUp, Trophy,
-  X,
+  X, Send,
 } from 'lucide-react';
 import { cn } from '../../utils/helpers';
 import { useAuth } from '../../contexts/AuthContext';
@@ -42,6 +42,7 @@ const NAV_ITEMS: Record<UserRole | 'default', NavItem[]> = {
     { to: '/payments',    icon: CreditCard,       label: 'Payments'    },
     { to: '/revenue',     icon: TrendingUp,       label: 'Revenue'     },
     { to: '/billing',     icon: Star,             label: 'Billing'     },
+    { to: '/outreach',    icon: Send,             label: 'Outreach'    },
     { to: '/deduplicate', icon: GitMerge,         label: 'Deduplicate' },
     { to: '/settings',    icon: Settings,         label: 'Settings'    },
   ],

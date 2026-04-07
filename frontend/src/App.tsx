@@ -94,6 +94,9 @@ import DeduplicatePage from './pages/DeduplicatePage';
 // Audience Intelligence
 import IntelligencePage from './pages/IntelligencePage';
 
+// Outreach Pipeline
+import OutreachPage from './pages/OutreachPage';
+
 // 404
 import NotFoundPage from './pages/NotFoundPage';
 
@@ -215,6 +218,7 @@ export default function App() {
           <Route path="influencers/:id" element={<InfluencerDetailPage />} />
           <Route path="influencers/:id/mediakit"      element={<InfluencerMediaKitPage />} />
           <Route path="intelligence/:id"             element={<IntelligencePage />} />
+          <Route path="outreach"                     element={<OutreachPage />} />
           <Route path="campaigns"       element={<CampaignsPage />} />
           <Route path="campaigns/:id"   element={<CampaignDetailPage />} />
           <Route path="campaigns/:id/report" element={<CampaignReportPage />} />

@@ -1104,4 +1104,91 @@ export const fanGetDelivery = async (token: string) => {
   return data.delivery as Record<string, unknown>;
 };
 
+// ─── Outreach ─────────────────────────────────────────────────────────────────
+export const getShadowProfiles = async (params?: Record<string, string>) => {
+  const { data } = await api.get('/outreach/shadows', { params });
+  return data as { profiles: Record<string, unknown>[]; total: number; page: number };
+};
+export const createShadowProfile = async (payload: Record<string, unknown>) => {
+  const { data } = await api.post('/outreach/shadows', payload);
+  return data as Record<string, unknown>;
+};
+export const updateShadowProfile = async (id: string, payload: Record<string, unknown>) => {
+  const { data } = await api.put(`/outreach/shadows/${id}`, payload);
+  return data as Record<string, unknown>;
+};
+export const deleteShadowProfile = async (id: string) => api.delete(`/outreach/shadows/${id}`);
+export const getOutreachLog = async (shadowId: string) => {
+  const { data } = await api.get(`/outreach/log/${shadowId}`);
+  return data as Record<string, unknown>[];
+};
+export const logOutreach = async (shadowId: string, payload: { channel: string; message_sent?: string }) => {
+  const { data } = await api.post(`/outreach/log/${shadowId}`, payload);
+  return data as Record<string, unknown>;
+};
+export const recordResponse = async (logId: string, response: string) => {
+  const { data } = await api.put(`/outreach/log-entry/${logId}`, { response });
+  return data as Record<string, unknown>;
+};
+export const getOutreachStats = async () => {
+  const { data } = await api.get('/outreach/stats');
+  return data;
+};
+
+// ─── AI Agent ─────────────────────────────────────────────────────────────────
+export const getAgentStatus = async () => {
+  const { data } = await api.get('/agent/status');
+  return data as { configured: boolean };
+};
+export const generateOutreachMessage = async (payload: { influencer_id: string; campaign_id?: string; channel?: string; tone?: string }) => {
+  const { data } = await api.post('/agent/outreach-message', payload);
+  return data as { is_demo: boolean; message: string; subject?: string };
+};
+export const matchInfluencers = async (campaignId: string, limit?: number) => {
+  const { data } = await api.post('/agent/match-influencers', { campaign_id: campaignId, limit });
+  return data as { is_demo: boolean; matches: Record<string, unknown>[] };
+};
+export const getCachedMatches = async (campaignId: string) => {
+  const { data } = await api.get(`/agent/match-influencers/${campaignId}`);
+  return data as { matches: Record<string, unknown>[] | null; generated_at?: string };
+};
+export const generateBriefing = async (influencerId: string) => {
+  const { data } = await api.post(`/agent/briefing/${influencerId}`);
+  return data as { id: string; content: string; generated_at: string };
+};
+export const getBriefings = async (influencerId: string) => {
+  const { data } = await api.get(`/agent/briefings/${influencerId}`);
+  return data as Record<string, unknown>[];
+};
+
+// ─── Ad Network ───────────────────────────────────────────────────────────────
+export const getAdNetworkStatus = async () => {
+  const { data } = await api.get('/adnetwork/status');
+  return data as { meta_configured: boolean; tiktok_configured: boolean; snapchat_configured: boolean };
+};
+export const getAudiences = async (params?: { campaign_id?: string; platform?: string }) => {
+  const { data } = await api.get('/adnetwork/audiences', { params });
+  return data as Record<string, unknown>[];
+};
+export const createAudience = async (payload: Record<string, unknown>) => {
+  const { data } = await api.post('/adnetwork/audiences', payload);
+  return data as Record<string, unknown>;
+};
+export const buildAudience = async (audienceId: string) => {
+  const { data } = await api.post(`/adnetwork/audiences/${audienceId}/build`);
+  return data as { ok: boolean; members_added: number };
+};
+export const getFraudAlerts = async (params?: { reviewed?: string; severity?: string }) => {
+  const { data } = await api.get('/adnetwork/fraud-alerts', { params });
+  return data as Record<string, unknown>[];
+};
+export const runFraudCheck = async (influencerId: string) => {
+  const { data } = await api.post(`/adnetwork/fraud-check/${influencerId}`);
+  return data as { ok: boolean; alerts_created: number; alerts: Record<string, unknown>[] };
+};
+export const reviewFraudAlert = async (alertId: string, action_taken: string) => {
+  const { data } = await api.put(`/adnetwork/fraud-alerts/${alertId}`, { action_taken });
+  return data as Record<string, unknown>;
+};
+
 export default api;
