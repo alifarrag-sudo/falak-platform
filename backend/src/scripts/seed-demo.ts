@@ -31,7 +31,7 @@ const DEMO_PASS_HASH = bcrypt.hashSync('Falak@Demo2026', 10);
 /* ── Helpers ────────────────────────────────────────────────────────────────── */
 
 async function upsertUser(email: string, role: string, displayName: string): Promise<string> {
-  const existing = await db.get<{ id: string }>('SELECT id FROM users WHERE email = ?', [email]);
+  const existing = await db.get('SELECT id FROM users WHERE email = ?', [email]) as { id: string } | undefined;
   if (existing) { console.log(`  ✓ ${role}: ${email}`); return existing.id; }
   const id = uuidv4();
   await db.run(
@@ -58,7 +58,7 @@ async function seed() {
   console.log('\n── Creator Portal ──────────────────────────────────────────');
   const portalEmail = 'creator@demo.falak.io';
   let portalId: string;
-  const existingPortal = await db.get<{ id: string }>('SELECT id FROM portal_users WHERE email = ?', [portalEmail]);
+  const existingPortal = await db.get('SELECT id FROM portal_users WHERE email = ?', [portalEmail]) as { id: string } | undefined;
   if (!existingPortal) {
     portalId = uuidv4();
     await db.run(
@@ -681,7 +681,7 @@ Content Format:
   }
 
   // Link portal user to Salma (first influencer)
-  const pu = await db.get<{ id: string; influencer_id: string | null }>('SELECT id, influencer_id FROM portal_users WHERE email = ?', [portalEmail]);
+  const pu = await db.get('SELECT id, influencer_id FROM portal_users WHERE email = ?', [portalEmail]) as { id: string; influencer_id: string | null } | undefined;
   if (pu && !pu.influencer_id) {
     await db.run('UPDATE portal_users SET influencer_id = ? WHERE id = ?', [influencers[0].id, pu.id]);
     console.log('\n  ✓ Portal user linked to Salma El-Masry');
@@ -698,7 +698,7 @@ Content Format:
        AND sent_at IS NULL`,
   );
   console.log('\n  ✓ Set sent_at on portal_offers');
-  const agencyUser = await db.get<{ id: string }>("SELECT id FROM users WHERE email = 'agency@demo.falak.io'");
+  const agencyUser = await db.get("SELECT id FROM users WHERE email = 'agency@demo.falak.io'") as { id: string } | undefined;
 
   /* ── B. Commissions (revenue dashboard demo) ─────────────────────────────── */
   console.log('\n── Commissions ─────────────────────────────────────────────');
@@ -808,7 +808,7 @@ Content Format:
   /* ── E. Fan request (fulfilled with shareable delivery page) ──────────────── */
   console.log('\n── Fan Request (Fulfilled) ──────────────────────────────────');
   try {
-    const fanUser = await db.get<{ id: string }>("SELECT id FROM fan_users WHERE email = 'fan@demo.falak.io'");
+    const fanUser = await db.get("SELECT id FROM fan_users WHERE email = 'fan@demo.falak.io'") as { id: string } | undefined;
     if (fanUser) {
       const fanReqId = uuidv4();
       const SHARE_TOKEN = 'demodemolivefandelivery2026xx';

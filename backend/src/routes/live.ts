@@ -36,7 +36,7 @@ function sseWrite(res: Response, event: Omit<LiveEvent, 'ts'> | { type: 'heartbe
 
 function sseAuth(req: Request, res: Response, next: NextFunction): void {
   // If Authorization header already present, delegate to normal middleware
-  if (req.headers.authorization) return requireViewerOrAdmin()(req as AuthRequest, res, next);
+  if (req.headers.authorization) { requireViewerOrAdmin()(req as AuthRequest, res, next); return; }
 
   // Accept ?token= for EventSource clients that cannot set headers
   const token = (req.query.token as string | undefined)?.trim();

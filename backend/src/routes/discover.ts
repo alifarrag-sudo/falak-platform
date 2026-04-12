@@ -123,7 +123,7 @@ router.get('/', async (req, res) => {
   const { results, error } = await discoverInfluencers(String(q).trim(), plat as 'instagram' | 'tiktok' | 'both', lim);
 
   // Apply filters client-side (RapidAPI doesn't support these natively)
-  let filtered: Record<string, unknown>[] = results as Record<string, unknown>[];
+  let filtered: Record<string, unknown>[] = (results as unknown) as Record<string, unknown>[];
 
   if (country && String(country).trim()) {
     const c = String(country).toLowerCase();

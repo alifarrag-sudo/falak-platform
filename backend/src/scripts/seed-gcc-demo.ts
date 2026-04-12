@@ -26,7 +26,7 @@ const DEMO_PASS_HASH = bcrypt.hashSync('Falak@Demo2026', 10);
 /* ── Helpers ────────────────────────────────────────────────────────────────── */
 
 async function upsertUser(email: string, role: string, displayName: string): Promise<string> {
-  const existing = await db.get<{ id: string }>('SELECT id FROM users WHERE email = ?', [email]);
+  const existing = await db.get('SELECT id FROM users WHERE email = ?', [email]) as { id: string } | undefined;
   if (existing) { console.log(`  ✓ ${role}: ${email}`); return existing.id; }
   const id = uuidv4();
   await db.run(
@@ -661,7 +661,7 @@ Approval:
   /* ── Commissions (SAR revenue ledger) ────────────────────────────────────── */
   console.log('\n── GCC Commissions ─────────────────────────────────────────');
 
-  const gccAgency = await db.get<{ id: string }>("SELECT id FROM users WHERE email = 'agency@gcc.falak.io'");
+  const gccAgency = await db.get("SELECT id FROM users WHERE email = 'agency@gcc.falak.io'") as { id: string } | undefined;
 
   // Record commissions for the two CONTENT_APPROVED offers (Nour + Sara + Ahmed)
   const commissions = [
