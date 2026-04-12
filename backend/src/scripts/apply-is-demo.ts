@@ -38,6 +38,6 @@ DO $$ BEGIN ALTER TABLE fan_users     ADD COLUMN is_demo INTEGER DEFAULT 0; EXCE
 }
 
 main().catch(err => {
-  console.error('❌  is_demo migration failed:', err.message);
-  process.exit(1);
+  // Non-fatal: log and continue — server must start even if migration fails
+  console.warn('⚠️  is_demo migration warning:', err.message);
 });

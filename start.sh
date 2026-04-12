@@ -15,8 +15,8 @@ fi
 # Step 2: seed demo data
 if [ "$SEED_DEMO" = "true" ]; then
   echo "🌱 Seeding demo data..."
-  node backend/dist/scripts/seed-demo.js
-  echo "✅ Demo seed complete"
+  node backend/dist/scripts/seed-demo.js || echo "⚠️  Seed had errors — continuing"
+  echo "✅ Demo seed step done"
 fi
 
 echo "🚀 Starting FALAK Platform..."
