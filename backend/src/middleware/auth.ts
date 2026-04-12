@@ -6,11 +6,11 @@
  */
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'cp-nsm-secret-change-in-production';
 
-export type UserRole = 'platform_admin' | 'agency' | 'brand' | 'influencer' | 'public' | 'talent_manager';
+export type UserRole = 'platform_admin' | 'agency' | 'brand' | 'influencer' | 'public' | 'talent_manager' | 'viewer';
 
 export interface AuthRequest extends Request {
   user?: Record<string, unknown>;
@@ -21,20 +21,18 @@ export interface AuthRequest extends Request {
  * If roles array is empty, any authenticated user is allowed.
  */
 export function requireAuth(...roles: UserRole[]) {
-  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+  return async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     const token = req.headers.authorization?.replace('Bearer ', '').trim();
     if (!token) {
       res.status(401).json({ error: 'Unauthorized — no token' });
       return;
     }
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      type P = any;
       const payload = jwt.verify(token, JWT_SECRET) as Record<string, unknown>;
-      const db = getDb();
-      const user = db.prepare(
-        'SELECT id, email, role, display_name, avatar_url, linked_influencer_id, linked_agency_id, linked_brand_id, status, created_at FROM users WHERE id = ? AND status = ?'
-      ).get(payload.id as P, 'active') as Record<string, unknown> | undefined;
+      const user = await db.get(
+        'SELECT id, email, role, display_name, avatar_url, linked_influencer_id, linked_agency_id, linked_brand_id, status, created_at FROM users WHERE id = ? AND status = ?',
+        [payload.id, 'active']
+      ) as Record<string, unknown> | undefined;
 
       if (!user) {
         res.status(401).json({ error: 'User not found or suspended' });
@@ -50,6 +48,14 @@ export function requireAuth(...roles: UserRole[]) {
       res.status(401).json({ error: 'Invalid or expired token' });
     }
   };
+}
+
+/**
+ * Convenience middleware that allows platform_admin or viewer roles.
+ * Use on read-only routes that investors/partners should be able to see.
+ */
+export function requireViewerOrAdmin() {
+  return requireAuth('platform_admin', 'viewer');
 }
 
 /** Generate a signed JWT for a user id (30 day expiry by default) */

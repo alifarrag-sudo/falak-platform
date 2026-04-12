@@ -1,38 +1,40 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../db/schema';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
+import { db } from '../db/connection';
 
 const router = Router();
 
+/** Returns true when demo records should be hidden (LIVE_VIEW_MODE or ?demo=false) */
+function filterDemo(req: Request): boolean {
+  return process.env.LIVE_VIEW_MODE === 'true' || req.query.demo === 'false';
+}
+
 // GET /api/campaigns
-router.get('/', (_req: Request, res: Response) => {
-  const db = getDb();
-  const campaigns = db.prepare(`
+router.get('/', async (req: Request, res: Response) => {
+  const demoClause = filterDemo(req) ? 'AND c.is_demo = 0' : '';
+  const campaigns = await db.all(`
     SELECT c.*,
       COUNT(ci.id) as influencer_count,
       SUM(ci.rate) as total_cost
     FROM campaigns c
     LEFT JOIN campaign_influencers ci ON ci.campaign_id = c.id
-    WHERE c.is_archived = 0
+    WHERE c.is_archived = 0 ${demoClause}
     GROUP BY c.id
     ORDER BY c.created_at DESC
-  `).all();
+  `, []);
   return res.json(campaigns);
 });
 
 // GET /api/campaigns/export/csv — download all campaigns as CSV
-router.get('/export/csv', (_req: Request, res: Response) => {
-  const db = getDb();
-  const rows = db.prepare(`
+router.get('/export/csv', async (_req: Request, res: Response) => {
+  const rows = await db.all(`
     SELECT c.id, c.name, c.client_name, c.platform_focus, c.status,
            c.budget, c.currency, c.start_date, c.end_date, c.description,
            c.created_at,
            (SELECT COUNT(*) FROM campaign_influencers ci WHERE ci.campaign_id = c.id) AS influencer_count
     FROM campaigns c
     ORDER BY c.created_at DESC
-  `).all() as Record<string, unknown>[];
+  `, []) as Record<string, unknown>[];
 
   if (rows.length === 0) {
     res.setHeader('Content-Type', 'text/csv');
@@ -59,12 +61,11 @@ router.get('/export/csv', (_req: Request, res: Response) => {
 });
 
 // GET /api/campaigns/:id
-router.get('/:id', (req: Request, res: Response) => {
-  const db = getDb();
-  const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ? AND is_archived = 0').get(req.params.id);
+router.get('/:id', async (req: Request, res: Response) => {
+  const campaign = await db.get('SELECT * FROM campaigns WHERE id = ? AND is_archived = 0', [req.params.id]);
   if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
 
-  const influencers = db.prepare(`
+  const influencers = await db.all(`
     SELECT ci.*, i.name_english, i.name_arabic, i.ig_handle, i.tiktok_handle,
            i.snap_handle, i.ig_followers, i.tiktok_followers, i.snap_followers,
            i.profile_photo_url, i.main_category, i.account_tier
@@ -72,14 +73,13 @@ router.get('/:id', (req: Request, res: Response) => {
     JOIN influencers i ON i.id = ci.influencer_id
     WHERE ci.campaign_id = ?
     ORDER BY ci.added_at ASC
-  `).all(req.params.id);
+  `, [req.params.id]);
 
   return res.json({ ...campaign as object, influencers });
 });
 
 // POST /api/campaigns
-router.post('/', (req: Request, res: Response) => {
-  const db = getDb();
+router.post('/', async (req: Request, res: Response) => {
   const id = uuidv4();
   const {
     name, client_name, start_date, end_date, budget,
@@ -88,18 +88,17 @@ router.post('/', (req: Request, res: Response) => {
 
   if (!name) return res.status(400).json({ error: 'Campaign name is required' });
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO campaigns (id, name, client_name, start_date, end_date, budget, brief, platform_focus, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name, client_name, start_date, end_date, budget || null, brief, platform_focus, status);
+  `, [id, name, client_name, start_date, end_date, budget || null, brief, platform_focus, status]);
 
-  return res.status(201).json(db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id));
+  return res.status(201).json(await db.get('SELECT * FROM campaigns WHERE id = ?', [id]));
 });
 
 // PUT /api/campaigns/:id
-router.put('/:id', (req: Request, res: Response) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT * FROM campaigns WHERE id = ? AND is_archived = 0').get(req.params.id);
+router.put('/:id', async (req: Request, res: Response) => {
+  const existing = await db.get('SELECT * FROM campaigns WHERE id = ? AND is_archived = 0', [req.params.id]);
   if (!existing) return res.status(404).json({ error: 'Campaign not found' });
 
   const allowed = ['name', 'client_name', 'start_date', 'end_date', 'budget', 'brief', 'platform_focus', 'status'];
@@ -109,39 +108,36 @@ router.put('/:id', (req: Request, res: Response) => {
 
   const set = fields.map(f => `${f} = ?`).join(', ');
   const vals = fields.map(f => updates[f]);
-  db.prepare(`UPDATE campaigns SET ${set}, updated_at = datetime('now') WHERE id = ?`).run(...vals as P[], req.params.id);
+  await db.run(`UPDATE campaigns SET ${set}, updated_at = NOW() WHERE id = ?`, [...vals, req.params.id]);
 
-  return res.json(db.prepare('SELECT * FROM campaigns WHERE id = ?').get(req.params.id));
+  return res.json(await db.get('SELECT * FROM campaigns WHERE id = ?', [req.params.id]));
 });
 
 // DELETE /api/campaigns/:id (soft)
-router.delete('/:id', (req: Request, res: Response) => {
-  const db = getDb();
-  db.prepare(`UPDATE campaigns SET is_archived = 1 WHERE id = ?`).run(req.params.id);
+router.delete('/:id', async (req: Request, res: Response) => {
+  await db.run(`UPDATE campaigns SET is_archived = 1 WHERE id = ?`, [req.params.id]);
   return res.json({ success: true });
 });
 
 // POST /api/campaigns/:id/influencers - add influencer to campaign
-router.post('/:id/influencers', (req: Request, res: Response) => {
-  const db = getDb();
-  const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ? AND is_archived = 0').get(req.params.id);
+router.post('/:id/influencers', async (req: Request, res: Response) => {
+  const campaign = await db.get('SELECT * FROM campaigns WHERE id = ? AND is_archived = 0', [req.params.id]);
   if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
 
   const { influencer_id, platform, num_posts = 1, rate, deliverables, notes } = req.body as Record<string, unknown>;
   if (!influencer_id) return res.status(400).json({ error: 'influencer_id required' });
 
   const id = uuidv4();
-  db.prepare(`
+  await db.run(`
     INSERT INTO campaign_influencers (id, campaign_id, influencer_id, platform, num_posts, rate, deliverables, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, req.params.id, influencer_id as P, platform as P, num_posts as P, (rate || null) as P, deliverables as P, notes as P);
+  `, [id, req.params.id, influencer_id, platform, num_posts, rate || null, deliverables, notes]);
 
-  return res.status(201).json(db.prepare('SELECT * FROM campaign_influencers WHERE id = ?').get(id));
+  return res.status(201).json(await db.get('SELECT * FROM campaign_influencers WHERE id = ?', [id]));
 });
 
 // PUT /api/campaigns/:id/influencers/:ciId
-router.put('/:id/influencers/:ciId', (req: Request, res: Response) => {
-  const db = getDb();
+router.put('/:id/influencers/:ciId', async (req: Request, res: Response) => {
   const allowed = ['platform', 'num_posts', 'rate', 'deliverables', 'notes', 'status'];
   const updates = req.body as Record<string, unknown>;
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
@@ -149,64 +145,62 @@ router.put('/:id/influencers/:ciId', (req: Request, res: Response) => {
 
   const set = fields.map(f => `${f} = ?`).join(', ');
   const vals = fields.map(f => updates[f]);
-  db.prepare(`UPDATE campaign_influencers SET ${set} WHERE id = ? AND campaign_id = ?`)
-    .run(...vals as P[], req.params.ciId, req.params.id);
+  await db.run(`UPDATE campaign_influencers SET ${set} WHERE id = ? AND campaign_id = ?`,
+    [...vals, req.params.ciId, req.params.id]);
 
-  return res.json(db.prepare('SELECT * FROM campaign_influencers WHERE id = ?').get(req.params.ciId));
+  return res.json(await db.get('SELECT * FROM campaign_influencers WHERE id = ?', [req.params.ciId]));
 });
 
 // DELETE /api/campaigns/:id/influencers/:ciId
-router.delete('/:id/influencers/:ciId', (req: Request, res: Response) => {
-  const db = getDb();
-  db.prepare('DELETE FROM campaign_influencers WHERE id = ? AND campaign_id = ?')
-    .run(req.params.ciId, req.params.id);
+router.delete('/:id/influencers/:ciId', async (req: Request, res: Response) => {
+  await db.run('DELETE FROM campaign_influencers WHERE id = ? AND campaign_id = ?',
+    [req.params.ciId, req.params.id]);
   return res.json({ success: true });
 });
 
 // GET /api/campaigns/:id/stats
-router.get('/:id/stats', (req: Request, res: Response) => {
-  const db = getDb();
+router.get('/:id/stats', async (req: Request, res: Response) => {
   const campaignId = req.params.id;
 
-  const campaign = db.prepare('SELECT budget, currency FROM campaigns WHERE id = ? AND is_archived = 0').get(campaignId) as { budget: number | null; currency: string | null } | undefined;
+  const campaign = await db.get('SELECT budget, currency FROM campaigns WHERE id = ? AND is_archived = 0', [campaignId]) as { budget: number | null; currency: string | null } | undefined;
   if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
 
-  const influencerCountRow = db.prepare('SELECT COUNT(*) as count FROM campaign_influencers WHERE campaign_id = ?').get(campaignId) as { count: number };
+  const influencerCountRow = await db.get('SELECT COUNT(*) as count FROM campaign_influencers WHERE campaign_id = ?', [campaignId]) as { count: number };
   const influencer_count = influencerCountRow.count;
 
-  const spentRow = db.prepare(`
+  const spentRow = await db.get(`
     SELECT COALESCE(SUM(rate), 0) AS total_spent FROM portal_offers
     WHERE campaign_id = ? AND status IN ('accepted','in_progress','submitted','approved','completed')
-  `).get(campaignId) as { total_spent: number };
+  `, [campaignId]) as { total_spent: number };
   const total_spent = spentRow.total_spent;
 
-  const offerStatusRows = db.prepare('SELECT status, COUNT(*) as count FROM portal_offers WHERE campaign_id = ? GROUP BY status').all(campaignId) as { status: string; count: number }[];
+  const offerStatusRows = await db.all('SELECT status, COUNT(*) as count FROM portal_offers WHERE campaign_id = ? GROUP BY status', [campaignId]) as { status: string; count: number }[];
   const offers_by_status: Record<string, number> = {};
   for (const row of offerStatusRows) {
     offers_by_status[row.status] = row.count;
   }
 
-  const reachRow = db.prepare(`
+  const reachRow = await db.get(`
     SELECT COALESCE(SUM(i.ig_followers), 0) + COALESCE(SUM(i.tiktok_followers), 0) AS total_reach
     FROM campaign_influencers ci JOIN influencers i ON ci.influencer_id = i.id
     WHERE ci.campaign_id = ?
-  `).get(campaignId) as { total_reach: number };
+  `, [campaignId]) as { total_reach: number };
   const total_followers_reach = reachRow.total_reach;
 
-  const deliverablesRow = db.prepare(`
+  const deliverablesRow = await db.get(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN pd.status = 'approved' THEN 1 ELSE 0 END) as approved
     FROM portal_deliverables pd
     JOIN portal_offers po ON pd.offer_id = po.id
     WHERE po.campaign_id = ?
-  `).get(campaignId) as { total: number; approved: number };
+  `, [campaignId]) as { total: number; approved: number };
 
   return res.json({
     influencer_count,
     total_budget: campaign.budget || 0,
     total_spent,
-    currency: campaign.currency || 'EGP',
+    currency: campaign.currency || 'SAR',
     offers_by_status,
     total_followers_reach,
     deliverables_count: deliverablesRow.total,
@@ -215,41 +209,37 @@ router.get('/:id/stats', (req: Request, res: Response) => {
 });
 
 // GET /api/campaigns/:id/notes
-router.get('/:id/notes', (req: Request, res: Response) => {
-  const db = getDb();
-  const notes = db.prepare(`
+router.get('/:id/notes', async (req: Request, res: Response) => {
+  const notes = await db.all(`
     SELECT * FROM campaign_notes WHERE campaign_id = ? ORDER BY created_at ASC
-  `).all(req.params.id);
+  `, [req.params.id]);
   return res.json(notes);
 });
 
 // POST /api/campaigns/:id/notes
-router.post('/:id/notes', (req: Request, res: Response) => {
+router.post('/:id/notes', async (req: Request, res: Response) => {
   const { author, content } = req.body;
   if (!content || !content.trim()) return res.status(400).json({ error: 'content is required' });
-  const db = getDb();
   const id = uuidv4();
-  db.prepare(`
+  await db.run(`
     INSERT INTO campaign_notes (id, campaign_id, author, content) VALUES (?, ?, ?, ?)
-  `).run(id, req.params.id, author || 'Agency', content.trim());
-  const note = db.prepare('SELECT * FROM campaign_notes WHERE id = ?').get(id);
+  `, [id, req.params.id, author || 'Agency', content.trim()]);
+  const note = await db.get('SELECT * FROM campaign_notes WHERE id = ?', [id]);
   return res.status(201).json(note);
 });
 
 // DELETE /api/campaigns/:campaignId/notes/:noteId
-router.delete('/:campaignId/notes/:noteId', (req: Request, res: Response) => {
-  const db = getDb();
-  db.prepare(`DELETE FROM campaign_notes WHERE id = ? AND campaign_id = ?`).run(req.params.noteId, req.params.campaignId);
+router.delete('/:campaignId/notes/:noteId', async (req: Request, res: Response) => {
+  await db.run(`DELETE FROM campaign_notes WHERE id = ? AND campaign_id = ?`, [req.params.noteId, req.params.campaignId]);
   return res.json({ success: true });
 });
 
 // GET /api/campaigns/:id/timeline — chronological event feed
-router.get('/:id/timeline', (req: Request, res: Response) => {
-  const db = getDb();
+router.get('/:id/timeline', async (req: Request, res: Response) => {
   const cid = req.params.id;
 
   // Campaign creation event
-  const campaign = db.prepare(`SELECT name, created_at, start_date, end_date, status FROM campaigns WHERE id = ?`).get(cid) as Record<string, unknown> | undefined;
+  const campaign = await db.get(`SELECT name, created_at, start_date, end_date, status FROM campaigns WHERE id = ?`, [cid]) as Record<string, unknown> | undefined;
   if (!campaign) return res.status(404).json({ error: 'Not found' });
 
   const events: { type: string; label: string; sub: string; ts: string }[] = [];
@@ -259,12 +249,12 @@ router.get('/:id/timeline', (req: Request, res: Response) => {
   if (campaign.end_date) events.push({ type: 'campaign_end', label: 'Campaign end date', sub: String(campaign.end_date), ts: String(campaign.end_date) });
 
   // Influencer added events
-  const ciRows = db.prepare(`
+  const ciRows = await db.all(`
     SELECT ci.created_at, i.full_name, i.ig_handle
     FROM campaign_influencers ci
     LEFT JOIN influencers i ON i.id = ci.influencer_id
     WHERE ci.campaign_id = ?
-  `).all(cid) as Record<string, unknown>[];
+  `, [cid]) as Record<string, unknown>[];
 
   for (const row of ciRows) {
     const name = String(row.full_name || row.ig_handle || 'Influencer');
@@ -272,14 +262,14 @@ router.get('/:id/timeline', (req: Request, res: Response) => {
   }
 
   // Offer events
-  const offerRows = db.prepare(`
+  const offerRows = await db.all(`
     SELECT o.created_at, o.status, o.updated_at, o.title,
            i.full_name, i.ig_handle
     FROM portal_offers o
     LEFT JOIN influencers i ON i.id = o.influencer_id
     WHERE o.campaign_id = ?
     ORDER BY o.created_at ASC
-  `).all(cid) as Record<string, unknown>[];
+  `, [cid]) as Record<string, unknown>[];
 
   for (const o of offerRows) {
     const name = String(o.full_name || o.ig_handle || 'Influencer');
@@ -297,14 +287,14 @@ router.get('/:id/timeline', (req: Request, res: Response) => {
   }
 
   // Deliverable events
-  const delivRows = db.prepare(`
+  const delivRows = await db.all(`
     SELECT d.created_at, d.status, d.updated_at, d.content_type,
            i.full_name, i.ig_handle
     FROM deliverables d
     LEFT JOIN influencers i ON i.id = d.influencer_id
     WHERE d.campaign_id = ?
     ORDER BY d.created_at ASC
-  `).all(cid) as Record<string, unknown>[];
+  `, [cid]) as Record<string, unknown>[];
 
   for (const d of delivRows) {
     const name = String(d.full_name || d.ig_handle || 'Influencer');
@@ -321,7 +311,7 @@ router.get('/:id/timeline', (req: Request, res: Response) => {
   }
 
   // Notes
-  const noteRows = db.prepare(`SELECT created_at, author, content FROM campaign_notes WHERE campaign_id = ? ORDER BY created_at ASC`).all(cid) as Record<string, unknown>[];
+  const noteRows = await db.all(`SELECT created_at, author, content FROM campaign_notes WHERE campaign_id = ? ORDER BY created_at ASC`, [cid]) as Record<string, unknown>[];
   for (const n of noteRows) {
     events.push({ type: 'note_added', label: `Note by ${String(n.author || 'Team')}`, sub: String(n.content || '').slice(0, 60), ts: String(n.created_at) });
   }

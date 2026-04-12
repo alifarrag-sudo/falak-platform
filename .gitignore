@@ -10,9 +10,19 @@ build/
 
 # Environment files (NEVER commit these)
 .env
-*/.env
+.env.*
+**/.env
+**/.env.*
+# Explicit coverage for common variants
 .env.local
 .env.production
+.env.development
+.env.test
+.env.staging
+*/.env.local
+*/.env.production
+*/.env.development
+*/.env.test
 
 # Database
 data/

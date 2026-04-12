@@ -13,7 +13,7 @@ const PLANS = [
   {
     id: 'starter' as const,
     name: 'Growth',
-    price: 'EGP 1,499',
+    price: 'SAR 1,499',
     period: '/mo',
     desc: 'For agencies launching their influencer practice',
     features: [
@@ -29,7 +29,7 @@ const PLANS = [
   {
     id: 'pro' as const,
     name: 'Pro',
-    price: 'EGP 2,999',
+    price: 'SAR 2,999',
     period: '/mo',
     desc: 'For growing agencies managing multiple brands',
     highlighted: true,
@@ -47,7 +47,7 @@ const PLANS = [
   {
     id: 'enterprise' as const,
     name: 'Enterprise',
-    price: 'EGP 5,999',
+    price: 'SAR 5,999',
     period: '/mo',
     desc: 'For large agencies and multi-brand platforms',
     features: [
@@ -231,7 +231,7 @@ export default function BillingPage() {
       {/* Note */}
       <div className="text-center space-y-1">
         <p className="text-xs text-gray-600">
-          Prices are in Egyptian Pound (EGP) and billed monthly. Cancel anytime from the billing portal.
+          Prices are in your account currency and billed monthly. Cancel anytime from the billing portal.
         </p>
         <p className="text-xs text-gray-600">
           FALAK earns a commission on every offer accepted through the platform — lower tiers apply as you upgrade.

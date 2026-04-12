@@ -8,70 +8,66 @@
  */
 import fetch from 'node-fetch';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 import { decryptToken, getPlatformConfig, PlatformKey, refreshAccessToken, encryptToken } from './oauthService';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function storePosts(influencerId: string, platform: string, posts: Array<{
+async function storePosts(influencerId: string, platform: string, posts: Array<{
   post_id?: string; post_url?: string; thumbnail_url?: string; caption?: string;
   media_type?: string; likes?: number; comments?: number; views?: number;
   shares?: number; posted_at?: string;
-}>) {
+}>): Promise<void> {
   if (!posts.length) return;
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO influencer_posts
-      (id, influencer_id, platform, post_id, post_url, thumbnail_url, caption,
-       media_type, likes, comments, views, shares, posted_at, source, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'oauth', datetime('now'))
-  `);
   for (const p of posts.slice(0, 12)) { // store up to 12 recent posts
-    stmt.run(
-      uuidv4() as P, influencerId as P, platform as P,
-      (p.post_id ?? null) as P, (p.post_url ?? null) as P,
-      (p.thumbnail_url ?? null) as P, (p.caption ?? null) as P,
-      (p.media_type ?? 'IMAGE') as P,
-      (p.likes ?? 0) as P, (p.comments ?? 0) as P,
-      (p.views ?? 0) as P, (p.shares ?? 0) as P,
-      (p.posted_at ?? null) as P,
-    );
+    await db.run(`
+      INSERT INTO influencer_posts
+        (id, influencer_id, platform, post_id, post_url, thumbnail_url, caption,
+         media_type, likes, comments, views, shares, posted_at, source, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'oauth', NOW())
+      ON CONFLICT(id) DO UPDATE SET
+        likes = EXCLUDED.likes, comments = EXCLUDED.comments,
+        views = EXCLUDED.views, shares = EXCLUDED.shares, synced_at = EXCLUDED.synced_at
+    `, [
+      uuidv4(), influencerId, platform,
+      p.post_id ?? null, p.post_url ?? null,
+      p.thumbnail_url ?? null, p.caption ?? null,
+      p.media_type ?? 'IMAGE',
+      p.likes ?? 0, p.comments ?? 0,
+      p.views ?? 0, p.shares ?? 0,
+      p.posted_at ?? null,
+    ]);
   }
 }
 
-function storePlatformStats(influencerId: string, platform: string, stats: Partial<PlatformStats>, source: string) {
-  const db = getDb();
+async function storePlatformStats(influencerId: string, platform: string, stats: Partial<PlatformStats>, source: string): Promise<void> {
   const id = uuidv4();
-  db.prepare(`
+  await db.run(`
     INSERT INTO platform_stats (
       id, influencer_id, platform, follower_count, following_count, post_count,
       avg_engagement_rate, avg_views, avg_likes, avg_comments,
       audience_gender_male_pct, audience_gender_female_pct,
       audience_top_country_1, audience_top_city_1,
       data_source, captured_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-  `).run(
-    id as P, influencerId as P, platform as P,
-    (stats.follower_count ?? null) as P,
-    (stats.following_count ?? null) as P,
-    (stats.post_count ?? null) as P,
-    (stats.avg_engagement_rate ?? null) as P,
-    (stats.avg_views ?? null) as P,
-    (stats.avg_likes ?? null) as P,
-    (stats.avg_comments ?? null) as P,
-    (stats.audience_gender_male_pct ?? null) as P,
-    (stats.audience_gender_female_pct ?? null) as P,
-    (stats.audience_top_country_1 ?? null) as P,
-    (stats.audience_top_city_1 ?? null) as P,
-    source as P,
-  );
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+  `, [
+    id, influencerId, platform,
+    stats.follower_count ?? null,
+    stats.following_count ?? null,
+    stats.post_count ?? null,
+    stats.avg_engagement_rate ?? null,
+    stats.avg_views ?? null,
+    stats.avg_likes ?? null,
+    stats.avg_comments ?? null,
+    stats.audience_gender_male_pct ?? null,
+    stats.audience_gender_female_pct ?? null,
+    stats.audience_top_country_1 ?? null,
+    stats.audience_top_city_1 ?? null,
+    source,
+  ]);
 }
 
-function updateInfluencerFollowers(influencerId: string, platform: string, followerCount: number) {
-  const db = getDb();
+async function updateInfluencerFollowers(influencerId: string, platform: string, followerCount: number): Promise<void> {
   const colMap: Record<string, string> = {
     instagram: 'ig_followers',
     tiktok:    'tiktok_followers',
@@ -81,14 +77,11 @@ function updateInfluencerFollowers(influencerId: string, platform: string, follo
   };
   const col = colMap[platform];
   if (!col) return;
-  db.prepare(`UPDATE influencers SET ${col} = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(followerCount as P, influencerId as P);
+  await db.run(`UPDATE influencers SET ${col} = ?, updated_at = NOW() WHERE id = ?`, [followerCount, influencerId]);
 }
 
-function markSynced(socialAccountId: string, status = 'synced') {
-  const db = getDb();
-  db.prepare(`UPDATE social_accounts SET last_synced_at = datetime('now'), sync_status = ? WHERE id = ?`)
-    .run(status as P, socialAccountId as P);
+async function markSynced(socialAccountId: string, status = 'synced'): Promise<void> {
+  await db.run(`UPDATE social_accounts SET last_synced_at = NOW(), sync_status = ? WHERE id = ?`, [status, socialAccountId]);
 }
 
 interface PlatformStats {
@@ -111,8 +104,6 @@ interface PlatformStats {
 
 async function syncInstagram(influencerId: string, accessToken: string): Promise<PlatformStats | null> {
   try {
-    // Using Facebook Business Login — token is a Facebook User Access Token.
-    // Try to get Instagram Business Account linked via Facebook Pages.
     const pagesRes = await fetch(
       `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,instagram_business_account{id,username,followers_count,media_count,biography}&access_token=${accessToken}`
     );
@@ -122,7 +113,6 @@ async function syncInstagram(influencerId: string, accessToken: string): Promise
       for (const page of pages.data || []) {
         const igAccount = page.instagram_business_account as Record<string, unknown> | undefined;
         if (igAccount?.id) {
-          // Fetch recent media via Instagram Graph API using IG User ID
           try {
             const mediaRes = await fetch(
               `https://graph.facebook.com/v21.0/${igAccount.id}/media?fields=id,media_type,media_url,thumbnail_url,permalink,caption,like_count,comments_count,timestamp&limit=12&access_token=${accessToken}`
@@ -130,7 +120,7 @@ async function syncInstagram(influencerId: string, accessToken: string): Promise
             if (mediaRes.ok) {
               const media = await mediaRes.json() as { data?: Array<Record<string, unknown>> };
               if (media.data?.length) {
-                storePosts(influencerId, 'instagram', media.data.map(p => ({
+                await storePosts(influencerId, 'instagram', media.data.map(p => ({
                   post_id:       String(p.id || ''),
                   post_url:      String(p.permalink || ''),
                   thumbnail_url: String(p.thumbnail_url || p.media_url || ''),
@@ -154,7 +144,6 @@ async function syncInstagram(influencerId: string, accessToken: string): Promise
       }
     }
 
-    // Fallback: store Facebook user info if no IG business account found
     const meRes = await fetch(
       `https://graph.facebook.com/v21.0/me?fields=id,name&access_token=${accessToken}`
     );
@@ -182,7 +171,6 @@ async function syncTikTok(influencerId: string, accessToken: string): Promise<Pl
     const d = await res.json() as { data?: { user?: Record<string, unknown> } };
     const user = d.data?.user || {};
 
-    // Fetch recent videos for top posts
     try {
       const vidRes = await fetch('https://open.tiktokapis.com/v2/video/list/?fields=id,title,cover_image_url,embed_link,video_description,like_count,comment_count,share_count,view_count,create_time', {
         method: 'POST',
@@ -192,7 +180,7 @@ async function syncTikTok(influencerId: string, accessToken: string): Promise<Pl
       if (vidRes.ok) {
         const vd = await vidRes.json() as { data?: { videos?: Array<Record<string, unknown>> } };
         if (vd.data?.videos?.length) {
-          storePosts(influencerId, 'tiktok', vd.data.videos.map(v => ({
+          await storePosts(influencerId, 'tiktok', vd.data.videos.map(v => ({
             post_id:       String(v.id || ''),
             post_url:      String(v.embed_link || ''),
             thumbnail_url: String(v.cover_image_url || ''),
@@ -231,10 +219,8 @@ async function syncYouTube(influencerId: string, accessToken: string): Promise<P
     const snippet = item.snippet    || {};
     const channelId = item.id;
 
-    // Fetch recent videos (uploads playlist → playlistItems)
     if (channelId) {
       try {
-        // Get uploads playlist ID first
         const plRes = await fetch(
           `https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelId}`,
           { headers: { 'Authorization': `Bearer ${accessToken}` } }
@@ -250,7 +236,6 @@ async function syncYouTube(influencerId: string, accessToken: string): Promise<P
             if (vidRes.ok) {
               const vd = await vidRes.json() as { items?: Array<Record<string, unknown>> };
               if (vd.items?.length) {
-                // Fetch video stats in bulk
                 const videoIds = vd.items.map(v => ((v.contentDetails as Record<string,unknown>)?.videoId as string) || '').filter(Boolean);
                 const statsRes = await fetch(
                   `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds.join(',')}`,
@@ -259,7 +244,7 @@ async function syncYouTube(influencerId: string, accessToken: string): Promise<P
                 if (statsRes.ok) {
                   const sd = await statsRes.json() as { items?: Array<Record<string, unknown>> };
                   if (sd.items?.length) {
-                    storePosts(influencerId, 'youtube', sd.items.map(v => {
+                    await storePosts(influencerId, 'youtube', sd.items.map(v => {
                       const vs = (v.statistics as Record<string,unknown>) || {};
                       const vsn = (v.snippet as Record<string,unknown>) || {};
                       const thumbs = (vsn.thumbnails as Record<string,Record<string,unknown>>) || {};
@@ -320,7 +305,6 @@ async function syncTwitter(influencerId: string, accessToken: string): Promise<P
     const metrics = (user.public_metrics as Record<string, unknown>) || {};
     const userId  = String(user.id || '');
 
-    // Fetch recent tweets for top posts
     if (userId) {
       try {
         const tweetsRes = await fetch(
@@ -337,7 +321,7 @@ async function syncTwitter(influencerId: string, accessToken: string): Promise<P
             for (const m of td.includes?.media || []) {
               mediaMap[String(m.media_key || '')] = m;
             }
-            storePosts(influencerId, 'twitter', td.data.map(t => {
+            await storePosts(influencerId, 'twitter', td.data.map(t => {
               const pm = (t.public_metrics as Record<string, unknown>) || {};
               const attachments = (t.attachments as Record<string, unknown>) || {};
               const mediaKeys = (attachments.media_keys as string[]) || [];
@@ -378,7 +362,6 @@ async function syncFacebook(influencerId: string, accessToken: string): Promise<
     if (!res.ok) return null;
     const d = await res.json() as Record<string, unknown>;
 
-    // Fetch recent posts
     try {
       const postsRes = await fetch(
         `https://graph.facebook.com/v18.0/me/posts?fields=id,message,full_picture,permalink_url,likes.summary(true),comments.summary(true),shares&limit=12&access_token=${accessToken}`
@@ -386,7 +369,7 @@ async function syncFacebook(influencerId: string, accessToken: string): Promise<
       if (postsRes.ok) {
         const pd = await postsRes.json() as { data?: Array<Record<string, unknown>> };
         if (pd.data?.length) {
-          storePosts(influencerId, 'facebook', pd.data.map(p => ({
+          await storePosts(influencerId, 'facebook', pd.data.map(p => ({
             post_id:       String(p.id || ''),
             post_url:      String(p.permalink_url || ''),
             thumbnail_url: String(p.full_picture || ''),
@@ -420,14 +403,10 @@ const OAUTH_SYNCS: Record<PlatformKey, (id: string, token: string) => Promise<Pl
 // ── Public: sync a single social account ─────────────────────────────────────
 
 export async function syncSocialAccount(socialAccountId: string): Promise<boolean> {
-  const db = getDb();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  type P = any;
-  const account = db.prepare('SELECT * FROM social_accounts WHERE id = ?')
-    .get(socialAccountId as P) as Record<string, unknown> | undefined;
+  const account = await db.get('SELECT * FROM social_accounts WHERE id = ?', [socialAccountId]) as Record<string, unknown> | undefined;
   if (!account) return false;
 
-  const platform  = account.platform as PlatformKey;
+  const platform     = account.platform as PlatformKey;
   const influencerId = account.influencer_id as string;
 
   let accessToken = decryptToken(account.access_token as string);
@@ -442,42 +421,42 @@ export async function syncSocialAccount(socialAccountId: string): Promise<boolea
         const newExpiry = refreshed.expires_in
           ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
           : null;
-        db.prepare(
-          'UPDATE social_accounts SET access_token = ?, refresh_token = ?, token_expiry = ? WHERE id = ?'
-        ).run(
-          encryptToken(refreshed.access_token) as P,
-          (refreshed.refresh_token ? encryptToken(refreshed.refresh_token) : account.refresh_token) as P,
-          newExpiry as P,
-          socialAccountId as P,
+        await db.run(
+          'UPDATE social_accounts SET access_token = ?, refresh_token = ?, token_expiry = ? WHERE id = ?',
+          [
+            encryptToken(refreshed.access_token),
+            refreshed.refresh_token ? encryptToken(refreshed.refresh_token) : account.refresh_token,
+            newExpiry,
+            socialAccountId,
+          ]
         );
       }
     }
   }
 
   const syncFn = OAUTH_SYNCS[platform];
-  if (!syncFn) { markSynced(socialAccountId, 'unsupported'); return false; }
+  if (!syncFn) { await markSynced(socialAccountId, 'unsupported'); return false; }
 
   const stats = await syncFn(influencerId, accessToken);
-  if (!stats) { markSynced(socialAccountId, 'error'); return false; }
+  if (!stats) { await markSynced(socialAccountId, 'error'); return false; }
 
-  storePlatformStats(influencerId, platform, stats, 'oauth');
-  if (stats.follower_count) updateInfluencerFollowers(influencerId, platform, stats.follower_count);
+  await storePlatformStats(influencerId, platform, stats, 'oauth');
+  if (stats.follower_count) await updateInfluencerFollowers(influencerId, platform, stats.follower_count);
   if (stats.platform_username) {
-    db.prepare('UPDATE social_accounts SET platform_username = ? WHERE id = ?')
-      .run(stats.platform_username as P, socialAccountId as P);
+    await db.run('UPDATE social_accounts SET platform_username = ? WHERE id = ?', [stats.platform_username, socialAccountId]);
   }
-  markSynced(socialAccountId, 'synced');
-  calculateTrustScore(influencerId);
+  await markSynced(socialAccountId, 'synced');
+  await calculateTrustScore(influencerId);
   return true;
 }
 
 // ── Public: sync all connected accounts (called by cron) ─────────────────────
 
 export async function syncAllOAuthAccounts(): Promise<{ synced: number; errors: number }> {
-  const db = getDb();
-  const accounts = db.prepare(
-    'SELECT id FROM social_accounts WHERE access_token IS NOT NULL AND sync_status != ?'
-  ).all('unsupported' as P) as Array<{ id: string }>;
+  const accounts = await db.all(
+    'SELECT id FROM social_accounts WHERE access_token IS NOT NULL AND sync_status != ?',
+    ['unsupported']
+  ) as Array<{ id: string }>;
 
   let synced = 0, errors = 0;
   for (const { id } of accounts) {
@@ -496,9 +475,7 @@ export async function syncViaScraperByHandle(
   platform: 'instagram' | 'tiktok',
   handle: string,
 ): Promise<boolean> {
-  const db = getDb();
-  const settings = db.prepare('SELECT value FROM settings WHERE key = ?')
-    .get('rapidapi_key' as P) as { value: string } | undefined;
+  const settings = await db.get('SELECT value FROM settings WHERE key = ?', ['rapidapi_key']) as { value: string } | undefined;
   const apiKey = settings?.value;
   if (!apiKey) return false;
 
@@ -528,8 +505,8 @@ export async function syncViaScraperByHandle(
     }
 
     if (followerCount !== null) {
-      storePlatformStats(influencerId, platform, { follower_count: followerCount }, 'scraper');
-      updateInfluencerFollowers(influencerId, platform, followerCount);
+      await storePlatformStats(influencerId, platform, { follower_count: followerCount }, 'scraper');
+      await updateInfluencerFollowers(influencerId, platform, followerCount);
       return true;
     }
   } catch { /* silent */ }
@@ -538,23 +515,18 @@ export async function syncViaScraperByHandle(
 
 // ── Trust Score calculation ───────────────────────────────────────────────────
 
-export function calculateTrustScore(influencerId: string): void {
-  const db = getDb();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  type P = any;
-
-  const inf = db.prepare('SELECT * FROM influencers WHERE id = ?')
-    .get(influencerId as P) as Record<string, unknown> | undefined;
+export async function calculateTrustScore(influencerId: string): Promise<void> {
+  const inf = await db.get('SELECT * FROM influencers WHERE id = ?', [influencerId]) as Record<string, unknown> | undefined;
   if (!inf) return;
 
-  // Get latest stats
-  const stats = db.prepare(
-    'SELECT * FROM platform_stats WHERE influencer_id = ? ORDER BY captured_at DESC LIMIT 1'
-  ).get(influencerId as P) as Record<string, unknown> | undefined;
+  const stats = await db.get(
+    'SELECT * FROM platform_stats WHERE influencer_id = ? ORDER BY captured_at DESC LIMIT 1',
+    [influencerId]
+  ) as Record<string, unknown> | undefined;
 
   let score = 0;
 
-  // 1. Engagement ratio (30%) — compare to tier benchmarks
+  // 1. Engagement ratio (30%)
   const followers = Number(inf.ig_followers || inf.tiktok_followers || 0);
   const engRate   = Number(stats?.avg_engagement_rate || inf.ig_engagement_rate || 0);
   const benchmarks: Record<string, number> = { nano: 5, micro: 3, macro: 1.5, mega: 0.8 };
@@ -563,30 +535,30 @@ export function calculateTrustScore(influencerId: string): void {
   const engScore = benchmark > 0 ? Math.min(30, (engRate / benchmark) * 30) : 0;
   score += engScore;
 
-  // 2. Account age vs follower count (15%) — penalize new accounts with huge following
+  // 2. Account age vs follower count (15%)
   const createdAt  = inf.created_at ? new Date(inf.created_at as string) : new Date();
   const ageMonths  = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24 * 30);
   const expectedGrowthPerMonth = tier === 'mega' ? 50_000 : tier === 'macro' ? 5_000 : 500;
   const expectedFollowers = ageMonths * expectedGrowthPerMonth;
   const ageScore = expectedFollowers > 0
     ? Math.min(15, (Math.min(followers, expectedFollowers) / expectedFollowers) * 15)
-    : 7.5; // neutral if no data
+    : 7.5;
   score += ageScore;
 
-  // 3. Data freshness / consistency (10%) — has recent platform_stats entry
+  // 3. Data freshness (10%)
   const hasRecentStats = stats
     ? (Date.now() - new Date(stats.captured_at as string).getTime()) < 30 * 24 * 60 * 60 * 1000
     : false;
   score += hasRecentStats ? 10 : 0;
 
-  // 4. Platform verified badge (10%) — from OAuth data
+  // 4. Platform verified badge (10%)
   const isVerified = Number(inf.mawthouq_certificate) === 1;
-  score += isVerified ? 5 : 0; // partial (full 10 only if officially verified via OAuth)
+  score += isVerified ? 5 : 0;
 
   // 5. Mawthouq badge (10%)
   score += isVerified ? 10 : 0;
 
-  // 6. Profile completeness (25%) — more complete = more trustworthy
+  // 6. Profile completeness (25%)
   const fields = ['name_english', 'profile_photo_url', 'ig_handle', 'main_category', 'ig_rate', 'email'];
   const filled  = fields.filter(f => inf[f]).length;
   score += (filled / fields.length) * 25;
@@ -594,36 +566,29 @@ export function calculateTrustScore(influencerId: string): void {
   score = Math.round(Math.min(100, Math.max(0, score)));
   const tier_label = score >= 80 ? 'TRUSTED' : score >= 60 ? 'VERIFIED' : score >= 40 ? 'CAUTION' : 'FLAGGED';
 
-  // Upsert trust score
-  const existing = db.prepare('SELECT id FROM trust_scores WHERE influencer_id = ?')
-    .get(influencerId as P) as { id: string } | undefined;
+  const existing = await db.get('SELECT id FROM trust_scores WHERE influencer_id = ?', [influencerId]) as { id: string } | undefined;
 
   if (existing) {
-    db.prepare(
-      'UPDATE trust_scores SET score = ?, tier = ?, engagement_ratio_score = ?, account_age_score = ?, mawthouq_score = ?, calculated_at = datetime(\'now\') WHERE influencer_id = ?'
-    ).run(score as P, tier_label as P, engScore as P, ageScore as P, isVerified ? 10 : 0 as P, influencerId as P);
+    await db.run(
+      `UPDATE trust_scores SET score = ?, tier = ?, engagement_ratio_score = ?, account_age_score = ?, mawthouq_score = ?, calculated_at = NOW() WHERE influencer_id = ?`,
+      [score, tier_label, engScore, ageScore, isVerified ? 10 : 0, influencerId]
+    );
   } else {
-    const id = uuidv4();
-    db.prepare(
-      'INSERT INTO trust_scores (id, influencer_id, score, tier, engagement_ratio_score, account_age_score, mawthouq_score) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(id as P, influencerId as P, score as P, tier_label as P, engScore as P, ageScore as P, isVerified ? 10 : 0 as P);
+    await db.run(
+      'INSERT INTO trust_scores (id, influencer_id, score, tier, engagement_ratio_score, account_age_score, mawthouq_score) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [uuidv4(), influencerId, score, tier_label, engScore, ageScore, isVerified ? 10 : 0]
+    );
   }
 
-  // Also update shorthand on influencers table
-  db.prepare('UPDATE influencers SET trust_score = ?, trust_tier = ? WHERE id = ?')
-    .run(score as P, tier_label as P, influencerId as P);
+  await db.run('UPDATE influencers SET trust_score = ?, trust_tier = ? WHERE id = ?', [score, tier_label, influencerId]);
 }
 
 // ── Bulk trust score recalculation (for cron) ─────────────────────────────────
 
 export async function recalculateAllTrustScores(): Promise<number> {
-  const db = getDb();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  type P = any;
-  const ids = db.prepare('SELECT id FROM influencers WHERE is_archived = 0')
-    .all() as Array<{ id: string }>;
+  const ids = await db.all('SELECT id FROM influencers WHERE is_archived = 0', []) as Array<{ id: string }>;
   for (const { id } of ids) {
-    calculateTrustScore(id);
+    await calculateTrustScore(id);
   }
   return ids.length;
 }

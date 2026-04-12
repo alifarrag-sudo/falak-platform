@@ -9,17 +9,13 @@
  */
 import { Router, Response } from 'express';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 
 const router = Router();
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
 
 // ── GET /api/revenue/summary ───────────────────────────────────────────────────
-router.get('/summary', requireAuth('platform_admin', 'agency'), (_req: AuthRequest, res: Response) => {
-  const db = getDb();
-
-  const total = db.prepare(`
+router.get('/summary', requireAuth('platform_admin', 'agency', 'viewer'), async (_req: AuthRequest, res: Response) => {
+  const total = await db.get(`
     SELECT
       COUNT(*)                                              AS total_commissions,
       COALESCE(SUM(commission_amount), 0)                  AS total_earned,
@@ -27,21 +23,20 @@ router.get('/summary', requireAuth('platform_admin', 'agency'), (_req: AuthReque
       COALESCE(SUM(CASE WHEN status='PENDING'   THEN commission_amount ELSE 0 END), 0) AS pending,
       COALESCE(SUM(gross_amount), 0)                        AS total_offer_volume
     FROM commissions WHERE transaction_type = 'offer'
-  `).get() as Record<string, number>;
+  `, []) as Record<string, number>;
 
-  const monthlyRow = db.prepare(`
+  const monthlyRow = await db.get(`
     SELECT COALESCE(SUM(commission_amount), 0) AS this_month
     FROM commissions
     WHERE transaction_type = 'offer'
-      AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
-  `).get() as { this_month: number };
+      AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())
+  `, []) as { this_month: number };
 
-  const activeOffers = db.prepare(`
+  const activeOffers = await db.get(`
     SELECT COUNT(*) AS cnt FROM portal_offers WHERE status IN ('accepted','in_progress','submitted')
-  `).get() as { cnt: number };
+  `, []) as { cnt: number };
 
-  const commPctRow = db.prepare("SELECT value FROM settings WHERE key = 'platform_commission_pct'")
-    .get() as { value: string } | undefined;
+  const commPctRow = await db.get("SELECT value FROM settings WHERE key = 'platform_commission_pct'", []) as { value: string } | undefined;
 
   res.json({
     commission_rate_pct:    parseFloat(commPctRow?.value || '10'),
@@ -56,15 +51,14 @@ router.get('/summary', requireAuth('platform_admin', 'agency'), (_req: AuthReque
 });
 
 // ── GET /api/revenue/commissions ───────────────────────────────────────────────
-router.get('/commissions', requireAuth('platform_admin', 'agency'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
+router.get('/commissions', requireAuth('platform_admin', 'agency', 'viewer'), async (req: AuthRequest, res: Response) => {
   const { status, page = '1', limit = '50' } = req.query as Record<string, string>;
   const offset = (parseInt(page) - 1) * parseInt(limit);
 
   const where = status ? 'WHERE c.status = ?' : '';
-  const params: P[] = status ? [status, parseInt(limit), offset] : [parseInt(limit), offset];
+  const filterParams: unknown[] = status ? [status] : [];
 
-  const rows = db.prepare(`
+  const rows = await db.all(`
     SELECT c.*,
            i.name_english AS influencer_name, i.ig_handle
     FROM commissions c
@@ -72,32 +66,28 @@ router.get('/commissions', requireAuth('platform_admin', 'agency'), (req: AuthRe
     ${where}
     ORDER BY c.created_at DESC
     LIMIT ? OFFSET ?
-  `).all(...params) as Record<string, unknown>[];
+  `, [...filterParams, parseInt(limit), offset]) as Record<string, unknown>[];
 
-  const totalRow = db.prepare(`SELECT COUNT(*) AS cnt FROM commissions ${where}`)
-    .get(...(status ? [status] : [])) as { cnt: number };
+  const totalRow = await db.get(`SELECT COUNT(*) AS cnt FROM commissions ${where}`, filterParams) as { cnt: number };
 
   res.json({ items: rows, total: totalRow.cnt, page: parseInt(page), limit: parseInt(limit) });
 });
 
 // ── PUT /api/revenue/commissions/:id/collect ───────────────────────────────────
-router.put('/commissions/:id/collect', requireAuth('platform_admin'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
+router.put('/commissions/:id/collect', requireAuth('platform_admin'), async (req: AuthRequest, res: Response) => {
   const { reference } = req.body as { reference?: string };
-  db.prepare(`
-    UPDATE commissions SET status = 'COLLECTED', collected_at = datetime('now')
+  await db.run(`
+    UPDATE commissions SET status = 'COLLECTED', collected_at = NOW()
     WHERE id = ?
-  `).run(req.params.id as P);
+  `, [req.params.id]);
   if (reference) {
-    db.prepare(`UPDATE commissions SET offer_title = COALESCE(offer_title, ?) WHERE id = ?`)
-      .run(reference as P, req.params.id as P);
+    await db.run(`UPDATE commissions SET offer_title = COALESCE(offer_title, ?) WHERE id = ?`, [reference, req.params.id]);
   }
   res.json({ success: true });
 });
 
 // ── GET /api/revenue/settings ──────────────────────────────────────────────────
-router.get('/settings', requireAuth('platform_admin'), (_req: AuthRequest, res: Response) => {
-  const db = getDb();
+router.get('/settings', requireAuth('platform_admin'), async (_req: AuthRequest, res: Response) => {
   const keys = [
     'platform_commission_pct',
     'subscription_growth_price_egp',
@@ -106,15 +96,14 @@ router.get('/settings', requireAuth('platform_admin'), (_req: AuthRequest, res: 
   ];
   const out: Record<string, string> = {};
   for (const k of keys) {
-    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(k as P) as { value: string } | undefined;
+    const row = await db.get('SELECT value FROM settings WHERE key = ?', [k]) as { value: string } | undefined;
     out[k] = row?.value || '';
   }
   res.json(out);
 });
 
 // ── PUT /api/revenue/settings ──────────────────────────────────────────────────
-router.put('/settings', requireAuth('platform_admin'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
+router.put('/settings', requireAuth('platform_admin'), async (req: AuthRequest, res: Response) => {
   const allowed = [
     'platform_commission_pct',
     'subscription_growth_price_egp',
@@ -124,8 +113,7 @@ router.put('/settings', requireAuth('platform_admin'), (req: AuthRequest, res: R
   const body = req.body as Record<string, string>;
   for (const key of allowed) {
     if (body[key] !== undefined) {
-      db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, datetime(\'now\'))')
-        .run(key as P, String(body[key]) as P);
+      await db.run(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, NOW()) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, [key, String(body[key])]);
     }
   }
   res.json({ success: true });
@@ -133,10 +121,9 @@ router.put('/settings', requireAuth('platform_admin'), (req: AuthRequest, res: R
 
 // ── GET /api/revenue/offer-breakdown ──────────────────────────────────────────
 // Monthly breakdown for chart
-router.get('/offer-breakdown', requireAuth('platform_admin', 'agency'), (_req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT strftime('%Y-%m', created_at) AS month,
+router.get('/offer-breakdown', requireAuth('platform_admin', 'agency', 'viewer'), async (_req: AuthRequest, res: Response) => {
+  const rows = await db.all(`
+    SELECT TO_CHAR(created_at, 'YYYY-MM') AS month,
            COUNT(*) AS offer_count,
            COALESCE(SUM(gross_amount), 0) AS volume,
            COALESCE(SUM(commission_amount), 0) AS earned
@@ -145,7 +132,7 @@ router.get('/offer-breakdown', requireAuth('platform_admin', 'agency'), (_req: A
     GROUP BY month
     ORDER BY month DESC
     LIMIT 12
-  `).all() as Record<string, unknown>[];
+  `, []) as Record<string, unknown>[];
   res.json(rows.reverse());
 });
 

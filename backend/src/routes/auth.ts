@@ -8,12 +8,9 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 import { requireAuth, signToken, AuthRequest } from '../middleware/auth';
 import { sendWelcomeEmail, sendPasswordResetEmail } from '../services/emailService';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
 
 const router = Router();
 
@@ -30,16 +27,14 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       res.status(400).json({ error: 'Password must be at least 6 characters' });
       return;
     }
-    const validRoles = ['platform_admin', 'agency', 'brand', 'influencer', 'public', 'talent_manager'];
+    const validRoles = ['platform_admin', 'agency', 'brand', 'influencer', 'public', 'talent_manager', 'viewer'];
     if (!validRoles.includes(role)) {
       res.status(400).json({ error: 'Invalid role' });
       return;
     }
 
-    const db = getDb();
-
     // Check duplicate email
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase() as P);
+    const existing = await db.get('SELECT id FROM users WHERE email = ?', [email.toLowerCase()]);
     if (existing) {
       res.status(409).json({ error: 'Email already registered' });
       return;
@@ -53,37 +48,33 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     // If agency role, create agency record
     if (role === 'agency' && agency_name) {
       const agencyId = uuidv4();
-      db.prepare(
-        'INSERT INTO agencies (id, name, contact_email) VALUES (?, ?, ?)'
-      ).run(agencyId as P, agency_name as P, email.toLowerCase() as P);
+      await db.run(
+        'INSERT INTO agencies (id, name, contact_email) VALUES (?, ?, ?)',
+        [agencyId, agency_name, email.toLowerCase()]
+      );
       linkedAgencyId = agencyId;
     }
 
     // If brand role, create brand record
     if (role === 'brand' && brand_name) {
       const brandId = uuidv4();
-      db.prepare(
-        'INSERT INTO brands (id, name, contact_email) VALUES (?, ?, ?)'
-      ).run(brandId as P, brand_name as P, email.toLowerCase() as P);
+      await db.run(
+        'INSERT INTO brands (id, name, contact_email) VALUES (?, ?, ?)',
+        [brandId, brand_name, email.toLowerCase()]
+      );
       linkedBrandId = brandId;
     }
 
-    db.prepare(
+    await db.run(
       `INSERT INTO users (id, email, password_hash, role, display_name, linked_agency_id, linked_brand_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      userId as P,
-      email.toLowerCase() as P,
-      passwordHash as P,
-      role as P,
-      (display_name || email.split('@')[0]) as P,
-      linkedAgencyId as P,
-      linkedBrandId as P
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, email.toLowerCase(), passwordHash, role, display_name || email.split('@')[0], linkedAgencyId, linkedBrandId]
     );
 
-    const user = db.prepare(
-      'SELECT id, email, role, display_name, avatar_url, linked_influencer_id, linked_agency_id, linked_brand_id, status, created_at FROM users WHERE id = ?'
-    ).get(userId as P) as Record<string, unknown>;
+    const user = await db.get(
+      'SELECT id, email, role, display_name, avatar_url, linked_influencer_id, linked_agency_id, linked_brand_id, status, created_at FROM users WHERE id = ?',
+      [userId]
+    ) as Record<string, unknown>;
 
     const token = signToken(userId);
 
@@ -108,9 +99,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE email = ? AND status = ?')
-      .get(email.toLowerCase() as P, 'active' as P) as Record<string, unknown> | undefined;
+    const user = await db.get('SELECT * FROM users WHERE email = ? AND status = ?', [email.toLowerCase(), 'active']) as Record<string, unknown> | undefined;
 
     if (!user) {
       res.status(401).json({ error: 'Invalid email or password' });
@@ -124,8 +113,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     // Update last login
-    db.prepare('UPDATE users SET last_login_at = datetime(\'now\') WHERE id = ?')
-      .run(user.id as P);
+    await db.run(`UPDATE users SET last_login_at = NOW() WHERE id = ?`, [user.id]);
 
     // Return user without password hash
     const { password_hash: _, ...safeUser } = user;
@@ -143,9 +131,8 @@ router.get('/me', requireAuth(), (req: AuthRequest, res: Response): void => {
 });
 
 // ── GET /api/auth/users ───────────────────────────────────────────────────────
-router.get('/users', requireAuth('platform_admin'), (req: AuthRequest, res: Response): void => {
+router.get('/users', requireAuth('platform_admin'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const db = getDb();
     const { search, role, page = '1', limit = '50' } = req.query as Record<string, string>;
 
     const pageNum = Math.max(1, parseInt(page, 10));
@@ -153,28 +140,32 @@ router.get('/users', requireAuth('platform_admin'), (req: AuthRequest, res: Resp
     const offset = (pageNum - 1) * limitNum;
 
     const conditions: string[] = ["status != 'deleted'"];
-    const params: P[] = [];
+    if (process.env.LIVE_VIEW_MODE === 'true' || req.query.demo === 'false') {
+      conditions.push('is_demo = 0');
+    }
+    const params: unknown[] = [];
 
     if (search) {
       conditions.push("(email LIKE ? OR display_name LIKE ?)");
-      params.push(`%${search}%` as P, `%${search}%` as P);
+      params.push(`%${search}%`, `%${search}%`);
     }
     if (role && role !== 'all') {
       conditions.push("role = ?");
-      params.push(role as P);
+      params.push(role);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const total = (db.prepare(`SELECT COUNT(*) as count FROM users ${where}`)
-      .get(...params as P[]) as Record<string, number>).count;
+    const countRow = await db.get(`SELECT COUNT(*) as count FROM users ${where}`, params) as Record<string, number>;
+    const total = countRow.count;
 
-    const users = db.prepare(
+    const users = await db.all(
       `SELECT id, email, role, display_name, status, created_at, last_login_at
        FROM users ${where}
        ORDER BY created_at DESC
-       LIMIT ? OFFSET ?`
-    ).all(...params as P[], limitNum as P, offset as P) as Record<string, unknown>[];
+       LIMIT ? OFFSET ?`,
+      [...params, limitNum, offset]
+    );
 
     res.json({ users, total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) });
   } catch (err) {
@@ -196,14 +187,13 @@ router.post('/users', requireAuth('platform_admin'), async (req: AuthRequest, re
       res.status(400).json({ error: 'Password must be at least 6 characters' });
       return;
     }
-    const validRoles = ['platform_admin', 'agency', 'brand', 'influencer', 'public', 'talent_manager'];
+    const validRoles = ['platform_admin', 'agency', 'brand', 'influencer', 'public', 'talent_manager', 'viewer'];
     if (!validRoles.includes(role)) {
       res.status(400).json({ error: 'Invalid role' });
       return;
     }
 
-    const db = getDb();
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase() as P);
+    const existing = await db.get('SELECT id FROM users WHERE email = ?', [email.toLowerCase()]);
     if (existing) {
       res.status(409).json({ error: 'Email already registered' });
       return;
@@ -212,20 +202,15 @@ router.post('/users', requireAuth('platform_admin'), async (req: AuthRequest, re
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = uuidv4();
 
-    db.prepare(
-      `INSERT INTO users (id, email, password_hash, role, display_name)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(
-      userId as P,
-      email.toLowerCase() as P,
-      passwordHash as P,
-      role as P,
-      (display_name || email.split('@')[0]) as P
+    await db.run(
+      `INSERT INTO users (id, email, password_hash, role, display_name) VALUES (?, ?, ?, ?, ?)`,
+      [userId, email.toLowerCase(), passwordHash, role, display_name || email.split('@')[0]]
     );
 
-    const user = db.prepare(
-      'SELECT id, email, role, display_name, status, created_at, last_login_at FROM users WHERE id = ?'
-    ).get(userId as P) as Record<string, unknown>;
+    const user = await db.get(
+      'SELECT id, email, role, display_name, status, created_at, last_login_at FROM users WHERE id = ?',
+      [userId]
+    );
 
     // Send welcome email (non-blocking)
     sendWelcomeEmail(email.toLowerCase(), display_name || email.split('@')[0], role).catch(() => {});
@@ -238,14 +223,12 @@ router.post('/users', requireAuth('platform_admin'), async (req: AuthRequest, re
 });
 
 // ── PUT /api/auth/users/:id ───────────────────────────────────────────────────
-router.put('/users/:id', requireAuth('platform_admin'), (req: AuthRequest, res: Response): void => {
+router.put('/users/:id', requireAuth('platform_admin'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const { status, role, display_name } = req.body as Record<string, string>;
 
-    const db = getDb();
-    const user = db.prepare("SELECT id FROM users WHERE id = ? AND status != 'deleted'")
-      .get(id as P) as Record<string, unknown> | undefined;
+    const user = await db.get("SELECT id FROM users WHERE id = ? AND status != 'deleted'", [id]) as Record<string, unknown> | undefined;
 
     if (!user) {
       res.status(404).json({ error: 'User not found' });
@@ -253,7 +236,7 @@ router.put('/users/:id', requireAuth('platform_admin'), (req: AuthRequest, res: 
     }
 
     const fields: string[] = [];
-    const params: P[] = [];
+    const params: unknown[] = [];
 
     if (status !== undefined) {
       const validStatuses = ['active', 'suspended'];
@@ -262,20 +245,20 @@ router.put('/users/:id', requireAuth('platform_admin'), (req: AuthRequest, res: 
         return;
       }
       fields.push('status = ?');
-      params.push(status as P);
+      params.push(status);
     }
     if (role !== undefined) {
-      const validRoles = ['platform_admin', 'agency', 'brand', 'influencer', 'public', 'talent_manager'];
+      const validRoles = ['platform_admin', 'agency', 'brand', 'influencer', 'public', 'talent_manager', 'viewer'];
       if (!validRoles.includes(role)) {
         res.status(400).json({ error: 'Invalid role' });
         return;
       }
       fields.push('role = ?');
-      params.push(role as P);
+      params.push(role);
     }
     if (display_name !== undefined) {
       fields.push('display_name = ?');
-      params.push(display_name as P);
+      params.push(display_name);
     }
 
     if (fields.length === 0) {
@@ -283,12 +266,13 @@ router.put('/users/:id', requireAuth('platform_admin'), (req: AuthRequest, res: 
       return;
     }
 
-    params.push(id as P);
-    db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...params as P[]);
+    params.push(id);
+    await db.run(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, params);
 
-    const updated = db.prepare(
-      'SELECT id, email, role, display_name, status, created_at, last_login_at FROM users WHERE id = ?'
-    ).get(id as P) as Record<string, unknown>;
+    const updated = await db.get(
+      'SELECT id, email, role, display_name, status, created_at, last_login_at FROM users WHERE id = ?',
+      [id]
+    );
 
     res.json({ user: updated });
   } catch (err) {
@@ -298,13 +282,11 @@ router.put('/users/:id', requireAuth('platform_admin'), (req: AuthRequest, res: 
 });
 
 // ── DELETE /api/auth/users/:id ────────────────────────────────────────────────
-router.delete('/users/:id', requireAuth('platform_admin'), (req: AuthRequest, res: Response): void => {
+router.delete('/users/:id', requireAuth('platform_admin'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const db = getDb();
 
-    const user = db.prepare("SELECT id FROM users WHERE id = ? AND status != 'deleted'")
-      .get(id as P) as Record<string, unknown> | undefined;
+    const user = await db.get("SELECT id FROM users WHERE id = ? AND status != 'deleted'", [id]) as Record<string, unknown> | undefined;
 
     if (!user) {
       res.status(404).json({ error: 'User not found' });
@@ -317,7 +299,7 @@ router.delete('/users/:id', requireAuth('platform_admin'), (req: AuthRequest, re
       return;
     }
 
-    db.prepare("UPDATE users SET status = 'deleted' WHERE id = ?").run(id as P);
+    await db.run("UPDATE users SET status = 'deleted' WHERE id = ?", [id]);
     res.json({ ok: true });
   } catch (err) {
     console.error('Delete user error:', err);
@@ -331,21 +313,17 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
     const { email } = req.body as { email: string };
     if (!email) { res.status(400).json({ error: 'Email required' }); return; }
 
-    const db = getDb();
-
-    // Add reset token columns if they don't exist yet
-    try { db.exec('ALTER TABLE users ADD COLUMN reset_token TEXT'); } catch { /* exists */ }
-    try { db.exec('ALTER TABLE users ADD COLUMN reset_token_expires TEXT'); } catch { /* exists */ }
-
-    const user = db.prepare("SELECT id, email, display_name FROM users WHERE email = ? AND status = 'active'")
-      .get(email.toLowerCase() as P) as { id: string; email: string; display_name: string } | undefined;
+    const user = await db.get(
+      "SELECT id, email, display_name FROM users WHERE email = ? AND status = 'active'",
+      [email.toLowerCase()]
+    ) as { id: string; email: string; display_name: string } | undefined;
 
     // Always respond OK to prevent email enumeration
     if (user) {
       const token = crypto.randomBytes(32).toString('hex');
       const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
-      db.prepare('UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?')
-        .run(token as P, expires as P, user.id as P);
+      await db.run('UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?',
+        [token, expires, user.id]);
       sendPasswordResetEmail(user.email, user.display_name || user.email, token).catch(() => {});
     }
 
@@ -363,10 +341,10 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
     if (!token || !password) { res.status(400).json({ error: 'Token and new password are required' }); return; }
     if (password.length < 8) { res.status(400).json({ error: 'Password must be at least 8 characters' }); return; }
 
-    const db = getDb();
-    const user = db.prepare(
-      "SELECT id, reset_token_expires FROM users WHERE reset_token = ? AND status = 'active'"
-    ).get(token as P) as { id: string; reset_token_expires: string } | undefined;
+    const user = await db.get(
+      "SELECT id, reset_token_expires FROM users WHERE reset_token = ? AND status = 'active'",
+      [token]
+    ) as { id: string; reset_token_expires: string } | undefined;
 
     if (!user) { res.status(400).json({ error: 'Invalid or expired reset token' }); return; }
     if (new Date(user.reset_token_expires) < new Date()) {
@@ -374,8 +352,8 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    db.prepare('UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?')
-      .run(passwordHash as P, user.id as P);
+    await db.run('UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?',
+      [passwordHash, user.id]);
 
     res.json({ ok: true, message: 'Password updated successfully. You can now log in.' });
   } catch (err) {

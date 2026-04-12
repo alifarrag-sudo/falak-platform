@@ -11,11 +11,8 @@
  */
 import cron from 'node-cron';
 import { syncAllOAuthAccounts, recalculateAllTrustScores, syncViaScraperByHandle } from '../services/platformSyncService';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 import { sendOfferExpiryWarningEmail, sendOfferExpiredEmail } from '../services/emailService';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
 
 let initialized = false;
 
@@ -38,22 +35,20 @@ export function initSyncJobs(): void {
   cron.schedule('0 3 */3 * *', async () => {
     console.log('[cron] Starting scraper sync for unconnected influencers...');
     try {
-      const db = getDb();
-
       // Find influencers with ig_handle that don't have a connected instagram account
       // and haven't been scraped in 72h
-      const toSync = db.prepare(`
+      const toSync = await db.all(`
         SELECT i.id, i.ig_handle, i.tiktok_handle
         FROM influencers i
         WHERE i.is_archived = 0
           AND (i.ig_handle IS NOT NULL OR i.tiktok_handle IS NOT NULL)
           AND NOT EXISTS (
             SELECT 1 FROM social_accounts sa
-            WHERE sa.influencer_id = i.id AND sa.last_synced_at > datetime('now', '-3 days')
+            WHERE sa.influencer_id = i.id AND sa.last_synced_at > NOW() - INTERVAL '3 days'
           )
-          AND (i.last_enriched_at IS NULL OR i.last_enriched_at < datetime('now', '-3 days'))
+          AND (i.last_enriched_at IS NULL OR i.last_enriched_at < NOW() - INTERVAL '3 days')
         LIMIT 50
-      `).all() as Array<{ id: string; ig_handle: string | null; tiktok_handle: string | null }>;
+      `, []) as Array<{ id: string; ig_handle: string | null; tiktok_handle: string | null }>;
 
       let synced = 0;
       for (const inf of toSync) {
@@ -86,15 +81,14 @@ export function initSyncJobs(): void {
   // ── Job 4: Flag stale manual data — every day at 5am ─────────────────────
   cron.schedule('0 5 * * *', async () => {
     try {
-      const db = getDb();
       // Flag influencers whose data hasn't been updated in 30+ days as needing enrichment
-      db.prepare(`
+      await db.run(`
         UPDATE influencers
         SET enrichment_status = 'stale'
         WHERE is_archived = 0
-          AND (last_enriched_at IS NULL OR last_enriched_at < datetime('now', '-30 days'))
+          AND (last_enriched_at IS NULL OR last_enriched_at < NOW() - INTERVAL '30 days')
           AND enrichment_status != 'stale'
-      `).run();
+      `, []);
     } catch (err) {
       console.error('[cron] Stale flag error:', err);
     }
@@ -103,21 +97,19 @@ export function initSyncJobs(): void {
   // ── Job 5: Offer expiry — every hour ─────────────────────────────────────
   cron.schedule('0 * * * *', async () => {
     try {
-      const db = getDb();
-
       // 1. Send 24h expiry warning (offers >48h old, <72h, not yet warned)
       type OfferRow = { id: string; title: string | null; portal_user_id: string | null; created_by: string | null; email: string | null };
-      const warnOffers = db.prepare(`
+      const warnOffers = await db.all(`
         SELECT po.id, po.title, po.portal_user_id, po.created_by,
                pu.email
         FROM portal_offers po
         LEFT JOIN portal_users pu ON po.portal_user_id = pu.id
         WHERE po.status IN ('sent', 'pending')
           AND po.sent_at IS NOT NULL
-          AND datetime(po.sent_at, '+48 hours') <= datetime('now')
-          AND datetime(po.sent_at, '+72 hours') > datetime('now')
+          AND po.sent_at + INTERVAL '48 hours' <= NOW()
+          AND po.sent_at + INTERVAL '72 hours' > NOW()
           AND po.expiry_warned_at IS NULL
-      `).all() as OfferRow[];
+      `, []) as OfferRow[];
 
       for (const o of warnOffers) {
         if (o.email) {
@@ -128,24 +120,24 @@ export function initSyncJobs(): void {
             offerId: o.id,
           }).catch(console.error);
         }
-        db.prepare(`UPDATE portal_offers SET expiry_warned_at = datetime('now') WHERE id = ?`).run(o.id as P);
+        await db.run(`UPDATE portal_offers SET expiry_warned_at = NOW() WHERE id = ?`, [o.id]);
       }
       if (warnOffers.length) console.log(`[cron] Offer expiry: warned ${warnOffers.length} offers`);
 
       // 2. Auto-expire offers >72h old
       type ExpiredRow = { id: string; title: string | null; created_by: string | null; agency_email: string | null };
-      const toExpire = db.prepare(`
+      const toExpire = await db.all(`
         SELECT po.id, po.title, po.created_by,
                u.email AS agency_email
         FROM portal_offers po
         LEFT JOIN users u ON po.created_by = u.id
         WHERE po.status IN ('sent', 'pending')
           AND po.sent_at IS NOT NULL
-          AND datetime(po.sent_at, '+72 hours') <= datetime('now')
-      `).all() as ExpiredRow[];
+          AND po.sent_at + INTERVAL '72 hours' <= NOW()
+      `, []) as ExpiredRow[];
 
       for (const o of toExpire) {
-        db.prepare(`UPDATE portal_offers SET status = 'expired', updated_at = datetime('now') WHERE id = ?`).run(o.id as P);
+        await db.run(`UPDATE portal_offers SET status = 'expired', updated_at = NOW() WHERE id = ?`, [o.id]);
         if (o.agency_email) {
           await sendOfferExpiredEmail(o.agency_email, {
             offerTitle: o.title || 'Untitled offer',

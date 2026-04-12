@@ -5,7 +5,7 @@
  */
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 import * as phylloService from '../services/phylloService';
 import * as sentimentService from '../services/sentimentService';
 
@@ -57,15 +57,14 @@ router.post('/sync/:influencerId', requireAuth('platform_admin', 'agency', 'infl
 });
 
 /** GET /api/intelligence/audience/:influencerId — demographics + quality */
-router.get('/audience/:influencerId', requireAuth('platform_admin', 'agency', 'brand', 'influencer'), (req, res) => {
-  const db = getDb();
+router.get('/audience/:influencerId', requireAuth('platform_admin', 'agency', 'brand', 'influencer'), async (req, res) => {
   const { influencerId } = req.params;
   const platform = String(req.query.platform || 'instagram');
 
-  const demographics = db.prepare('SELECT * FROM audience_demographics WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
-  const quality = db.prepare('SELECT * FROM audience_quality WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
-  const interests = db.prepare('SELECT * FROM audience_interests WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
-  const phylloUser = db.prepare('SELECT phyllo_user_id, created_at FROM phyllo_users WHERE influencer_id = ?').get(influencerId) as Record<string, unknown> | undefined;
+  const demographics = await db.get('SELECT * FROM audience_demographics WHERE influencer_id = ? AND platform = ?', [influencerId, platform]) as Record<string, unknown> | undefined;
+  const quality = await db.get('SELECT * FROM audience_quality WHERE influencer_id = ? AND platform = ?', [influencerId, platform]) as Record<string, unknown> | undefined;
+  const interests = await db.get('SELECT * FROM audience_interests WHERE influencer_id = ? AND platform = ?', [influencerId, platform]) as Record<string, unknown> | undefined;
+  const phylloUser = await db.get('SELECT phyllo_user_id, created_at FROM phyllo_users WHERE influencer_id = ?', [influencerId]) as Record<string, unknown> | undefined;
 
   // Parse JSON fields
   const parseJSON = (val: unknown) => {
@@ -97,12 +96,11 @@ router.get('/audience/:influencerId', requireAuth('platform_admin', 'agency', 'b
 });
 
 /** GET /api/intelligence/content/:influencerId — content performance */
-router.get('/content/:influencerId', requireAuth('platform_admin', 'agency', 'brand', 'influencer'), (req, res) => {
-  const db = getDb();
+router.get('/content/:influencerId', requireAuth('platform_admin', 'agency', 'brand', 'influencer'), async (req, res) => {
   const { influencerId } = req.params;
   const platform = String(req.query.platform || 'instagram');
 
-  const content = db.prepare('SELECT * FROM content_performance WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
+  const content = await db.get('SELECT * FROM content_performance WHERE influencer_id = ? AND platform = ?', [influencerId, platform]) as Record<string, unknown> | undefined;
   const demo = phylloService.getDemoIntelligenceData(influencerId);
 
   res.json(content ? {
@@ -124,8 +122,7 @@ router.get('/sentiment/:influencerId', requireAuth('platform_admin', 'agency', '
 });
 
 /** GET /api/intelligence/full/:influencerId — all intelligence data in one call */
-router.get('/full/:influencerId', requireAuth('platform_admin', 'agency', 'brand', 'influencer'), (req, res) => {
-  const db = getDb();
+router.get('/full/:influencerId', requireAuth('platform_admin', 'agency', 'brand', 'influencer'), async (req, res) => {
   const { influencerId } = req.params;
   const platform = String(req.query.platform || 'instagram');
 
@@ -134,13 +131,16 @@ router.get('/full/:influencerId', requireAuth('platform_admin', 'agency', 'brand
     try { return JSON.parse(val as string); } catch { return []; }
   };
 
-  const demographics = db.prepare('SELECT * FROM audience_demographics WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
-  const quality = db.prepare('SELECT * FROM audience_quality WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
-  const interests = db.prepare('SELECT * FROM audience_interests WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
-  const content = db.prepare('SELECT * FROM content_performance WHERE influencer_id = ? AND platform = ?').get(influencerId, platform) as Record<string, unknown> | undefined;
+  const [demographics, quality, interests, content, phylloUser, influencer] = await Promise.all([
+    db.get('SELECT * FROM audience_demographics WHERE influencer_id = ? AND platform = ?', [influencerId, platform]) as Promise<Record<string, unknown> | undefined>,
+    db.get('SELECT * FROM audience_quality WHERE influencer_id = ? AND platform = ?', [influencerId, platform]) as Promise<Record<string, unknown> | undefined>,
+    db.get('SELECT * FROM audience_interests WHERE influencer_id = ? AND platform = ?', [influencerId, platform]) as Promise<Record<string, unknown> | undefined>,
+    db.get('SELECT * FROM content_performance WHERE influencer_id = ? AND platform = ?', [influencerId, platform]) as Promise<Record<string, unknown> | undefined>,
+    db.get('SELECT phyllo_user_id FROM phyllo_users WHERE influencer_id = ?', [influencerId]) as Promise<Record<string, unknown> | undefined>,
+    db.get('SELECT name_english, name_arabic, ig_followers, ig_engagement_rate, account_tier FROM influencers WHERE id = ?', [influencerId]) as Promise<Record<string, unknown> | undefined>,
+  ]);
+
   const sentiment = sentimentService.getLatestSentiment(influencerId, platform);
-  const phylloUser = db.prepare('SELECT phyllo_user_id FROM phyllo_users WHERE influencer_id = ?').get(influencerId) as Record<string, unknown> | undefined;
-  const influencer = db.prepare('SELECT name_english, name_arabic, ig_followers, ig_engagement_rate, account_tier FROM influencers WHERE id = ?').get(influencerId) as Record<string, unknown> | undefined;
 
   const hasRealData = !!(demographics || quality || content);
 
@@ -178,8 +178,7 @@ router.get('/full/:influencerId', requireAuth('platform_admin', 'agency', 'brand
 
 /** POST /api/intelligence/sync-all — admin: sync all influencers */
 router.post('/sync-all', requireAuth('platform_admin'), async (_req, res) => {
-  const db = getDb();
-  const influencers = db.prepare(`SELECT id FROM influencers WHERE is_archived = 0 LIMIT 100`).all() as Array<{ id: string }>;
+  const influencers = await db.all(`SELECT id FROM influencers WHERE is_archived = 0 LIMIT 100`, []) as Array<{ id: string }>;
 
   const results = { synced: 0, errors: [] as string[] };
 

@@ -30,12 +30,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
 
 const PORTAL_JWT_SECRET = process.env.JWT_SECRET || 'cp-portal-secret-change-in-prod';
 
@@ -86,20 +84,18 @@ interface DualAuthRequest extends Request {
   isAdmin?: boolean;
 }
 
-function requireLoyaltyAuth(req: DualAuthRequest, res: Response, next: NextFunction) {
+async function requireLoyaltyAuth(req: DualAuthRequest, res: Response, next: NextFunction): Promise<void> {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-
-  const db = getDb();
+  if (!token) { res.status(401).json({ error: 'Unauthorized' }); return; }
 
   // Try portal JWT first
   try {
     const payload = jwt.verify(token, PORTAL_JWT_SECRET) as Record<string, unknown>;
-    const user = db.prepare('SELECT id FROM portal_users WHERE id = ?').get(payload.id as P) as { id: string } | undefined;
+    const user = await db.get('SELECT id FROM portal_users WHERE id = ?', [payload.id]) as { id: string } | undefined;
     if (user) {
       req.loyaltyUserId   = user.id;
       req.loyaltyUserType = 'influencer';
-      return next();
+      next(); return;
     }
   } catch { /* not a portal token */ }
 
@@ -107,27 +103,26 @@ function requireLoyaltyAuth(req: DualAuthRequest, res: Response, next: NextFunct
   try {
     const mainSecret = process.env.JWT_SECRET || 'change-me-in-prod';
     const payload = jwt.verify(token, mainSecret) as Record<string, unknown>;
-    const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(payload.id as P) as { id: string; role: string } | undefined;
+    const user = await db.get('SELECT id, role FROM users WHERE id = ?', [payload.id]) as { id: string; role: string } | undefined;
     if (user) {
       req.loyaltyUserId   = user.id;
       req.loyaltyUserType = user.role === 'platform_admin' ? 'agency' : user.role;
       req.isAdmin         = user.role === 'platform_admin';
-      return next();
+      next(); return;
     }
   } catch { /* not a main token */ }
 
-  return res.status(401).json({ error: 'Invalid token' });
+  res.status(401).json({ error: 'Invalid token' });
 }
 
 // ── GET /api/loyalty/me ────────────────────────────────────────────────────────
-router.get('/me', requireLoyaltyAuth, (req: DualAuthRequest, res: Response) => {
-  const db  = getDb();
+router.get('/me', requireLoyaltyAuth, async (req: DualAuthRequest, res: Response) => {
   const uid = req.loyaltyUserId!;
   const ut  = req.loyaltyUserType!;
 
-  const totalRow = db.prepare(`
+  const totalRow = await db.get(`
     SELECT COALESCE(SUM(points), 0) AS total FROM loyalty_points WHERE user_id = ? AND user_type = ?
-  `).get(uid, ut) as { total: number };
+  `, [uid, ut]) as { total: number };
 
   const total = totalRow.total;
   const tier  = getTier(ut, total);
@@ -135,8 +130,7 @@ router.get('/me', requireLoyaltyAuth, (req: DualAuthRequest, res: Response) => {
 
   const commissionDiscount = ut === 'influencer' ? (INFLUENCER_COMMISSION_DISCOUNT[tier] || 0) : 0;
 
-  const commPctRow = db.prepare("SELECT value FROM settings WHERE key = 'platform_commission_pct'")
-    .get() as { value: string } | undefined;
+  const commPctRow = await db.get("SELECT value FROM settings WHERE key = 'platform_commission_pct'", []) as { value: string } | undefined;
   const baseCommission  = parseFloat(commPctRow?.value || '10');
   const effectiveCommission = Math.max(0, baseCommission - commissionDiscount);
 
@@ -153,40 +147,38 @@ router.get('/me', requireLoyaltyAuth, (req: DualAuthRequest, res: Response) => {
 });
 
 // ── GET /api/loyalty/history ───────────────────────────────────────────────────
-router.get('/history', requireLoyaltyAuth, (req: DualAuthRequest, res: Response) => {
-  const db  = getDb();
+router.get('/history', requireLoyaltyAuth, async (req: DualAuthRequest, res: Response) => {
   const uid = req.loyaltyUserId!;
   const ut  = req.loyaltyUserType!;
   const { page = '1', limit = '20' } = req.query as Record<string, string>;
   const offset = (parseInt(page) - 1) * parseInt(limit);
 
-  const rows = db.prepare(`
+  const rows = await db.all(`
     SELECT * FROM loyalty_points WHERE user_id = ? AND user_type = ?
     ORDER BY created_at DESC LIMIT ? OFFSET ?
-  `).all(uid, ut, parseInt(limit), offset) as Record<string, unknown>[];
+  `, [uid, ut, parseInt(limit), offset]);
 
   res.json(rows);
 });
 
 // ── GET /api/loyalty/leaderboard ───────────────────────────────────────────────
-router.get('/leaderboard', (req: Request, res: Response) => {
-  const db = getDb();
+router.get('/leaderboard', async (req: Request, res: Response) => {
   const { user_type = 'influencer', limit = '10' } = req.query as Record<string, string>;
 
-  const rows = db.prepare(`
+  const rows = await db.all(`
     SELECT user_id, user_type, SUM(points) AS total_points
     FROM loyalty_points WHERE user_type = ?
     GROUP BY user_id, user_type
     ORDER BY total_points DESC
     LIMIT ?
-  `).all(user_type, parseInt(limit)) as { user_id: string; user_type: string; total_points: number }[];
+  `, [user_type, parseInt(limit)]) as { user_id: string; user_type: string; total_points: number }[];
 
   // Enrich with names for influencers
-  const enriched = rows.map((r, i) => {
+  const enriched = await Promise.all(rows.map(async (r, i) => {
     let name = r.user_id;
     try {
       if (r.user_type === 'influencer') {
-        const pu = db.prepare('SELECT name FROM portal_users WHERE id = ?').get(r.user_id as P) as { name: string } | undefined;
+        const pu = await db.get('SELECT name FROM portal_users WHERE id = ?', [r.user_id]) as { name: string } | undefined;
         if (pu?.name) name = pu.name;
       }
     } catch { /* ignore */ }
@@ -198,38 +190,36 @@ router.get('/leaderboard', (req: Request, res: Response) => {
       tier: getTier(r.user_type, r.total_points),
       display_name: name,
     };
-  });
+  }));
 
   res.json(enriched);
 });
 
 // ── POST /api/loyalty/award (admin only) ───────────────────────────────────────
-router.post('/award', requireAuth('platform_admin'), (req: AuthRequest, res: Response) => {
+router.post('/award', requireAuth('platform_admin'), async (req: AuthRequest, res: Response) => {
   const { user_type, user_id, action, points, note, reference_id } = req.body as {
     user_type: string; user_id: string; action: string; points: number; note?: string; reference_id?: string;
   };
   if (!user_type || !user_id || !action || !points) {
     return res.status(400).json({ error: 'user_type, user_id, action, and points are required' });
   }
-  const db = getDb();
-  db.prepare(`
+  await db.run(`
     INSERT INTO loyalty_points (id, user_type, user_id, action, points, reference_id, note)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(uuidv4(), user_type, user_id, action, points, reference_id || null, note || null);
+  `, [uuidv4(), user_type, user_id, action, points, reference_id || null, note || null]);
   res.json({ success: true });
 });
 
 // ── GET /api/loyalty/all (admin) ───────────────────────────────────────────────
-router.get('/all', requireAuth('platform_admin'), (_req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const rows = db.prepare(`
+router.get('/all', requireAuth('platform_admin'), async (_req: AuthRequest, res: Response) => {
+  const rows = await db.all(`
     SELECT user_id, user_type, SUM(points) AS total_points, COUNT(*) AS action_count,
            MAX(created_at) AS last_activity
     FROM loyalty_points
     GROUP BY user_id, user_type
     ORDER BY total_points DESC
     LIMIT 100
-  `).all() as Record<string, unknown>[];
+  `, []) as Record<string, unknown>[];
 
   const enriched = rows.map(r => ({
     ...r,

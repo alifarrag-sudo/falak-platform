@@ -1,10 +1,13 @@
-import { DatabaseSync } from 'node:sqlite';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const nodeSqlite = require('node:sqlite');
 import path from 'path';
 import fs from 'fs';
 
-let db: DatabaseSync;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let db: any;
 
-export function getDb(): DatabaseSync {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function getDb(): any {
   if (!db) {
     // Resolve DB_PATH lazily so dotenv has time to load before this is called
     const DB_PATH = process.env.DB_PATH
@@ -16,7 +19,7 @@ export function getDb(): DatabaseSync {
       fs.mkdirSync(dataDir, { recursive: true });
     }
 
-    db = new DatabaseSync(DB_PATH);
+    db = new nodeSqlite.DatabaseSync(DB_PATH);
     db.exec('PRAGMA journal_mode = WAL');
     db.exec('PRAGMA foreign_keys = ON');
     db.exec("PRAGMA encoding = 'UTF-8'");
@@ -25,6 +28,12 @@ export function getDb(): DatabaseSync {
 }
 
 export function initializeDatabase(): void {
+  // In PostgreSQL mode, schema is managed by migrate-pg.sql — skip SQLite init.
+  if (process.env.DATABASE_URL) {
+    console.log('PostgreSQL mode — skipping SQLite initialization.');
+    return;
+  }
+
   const db = getDb();
 
   db.exec(`
@@ -82,7 +91,8 @@ export function initializeDatabase(): void {
       updated_at TEXT DEFAULT (datetime('now')),
       is_archived INTEGER DEFAULT 0,
       last_enriched_at TEXT,
-      enrichment_status TEXT DEFAULT 'pending'
+      enrichment_status TEXT DEFAULT 'pending',
+      is_demo INTEGER DEFAULT 0
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS influencers_fts USING fts5(
@@ -151,7 +161,8 @@ export function initializeDatabase(): void {
       created_by TEXT DEFAULT 'admin',
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
-      is_archived INTEGER DEFAULT 0
+      is_archived INTEGER DEFAULT 0,
+      is_demo INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS campaign_influencers (
@@ -196,7 +207,8 @@ export function initializeDatabase(): void {
       status TEXT DEFAULT 'active',  -- active | suspended
       influencer_id TEXT,       -- linked DB influencer, if matched
       created_at TEXT DEFAULT (datetime('now')),
-      last_login_at TEXT
+      last_login_at TEXT,
+      is_demo INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS portal_offers (
@@ -217,7 +229,8 @@ export function initializeDatabase(): void {
       sent_at TEXT,
       responded_at TEXT,
       created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      updated_at TEXT DEFAULT (datetime('now')),
+      is_demo INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS portal_deliverables (
@@ -275,7 +288,8 @@ export function initializeDatabase(): void {
       linked_brand_id TEXT,
       status TEXT DEFAULT 'active',
       created_at TEXT DEFAULT (datetime('now')),
-      last_login_at TEXT
+      last_login_at TEXT,
+      is_demo INTEGER DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
@@ -912,7 +926,8 @@ export function initializeDatabase(): void {
       country     TEXT,
       avatar_url  TEXT,
       created_at  TEXT DEFAULT (datetime('now')),
-      updated_at  TEXT DEFAULT (datetime('now'))
+      updated_at  TEXT DEFAULT (datetime('now')),
+      is_demo     INTEGER DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_fan_users_email ON fan_users(email);
 
@@ -960,7 +975,7 @@ export function initializeDatabase(): void {
 
   // ── Add currency to commissions ledger ─────────────────────────────────────
   for (const [col, def] of [
-    ['currency',       "TEXT DEFAULT 'EGP'"],
+    ['currency',       "TEXT DEFAULT 'SAR'"],
     ['offer_title',    'TEXT'],
     ['influencer_id',  'TEXT'],
     ['agency_id',      'TEXT'],

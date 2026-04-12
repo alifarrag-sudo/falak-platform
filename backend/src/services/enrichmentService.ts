@@ -1,6 +1,4 @@
-import { getDb } from '../db/schema';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
+import { db } from '../db/connection';
 
 interface EnrichmentResult {
   id: string;
@@ -14,8 +12,7 @@ interface EnrichmentResult {
  * Uses RapidAPI if key is configured, falls back to public page scraping.
  */
 export async function enrichInfluencer(influencer: Record<string, unknown>): Promise<EnrichmentResult> {
-  const db = getDb();
-  const settings = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
+  const settings = await db.all('SELECT key, value FROM settings', []) as { key: string; value: string }[];
   const settingsMap: Record<string, string> = {};
   settings.forEach(s => { settingsMap[s.key] = s.value; });
 
@@ -59,18 +56,15 @@ export async function enrichInfluencer(influencer: Record<string, unknown>): Pro
       const set = fields.map(f => `${f} = ?`).join(', ');
       const vals = fields.map(f => updates[f]);
 
-      db.prepare(`UPDATE influencers SET ${set}, updated_at = datetime('now') WHERE id = ?`)
-        .run(...vals as P[], influencer.id as string);
+      await db.run(`UPDATE influencers SET ${set}, updated_at = NOW() WHERE id = ?`, [...vals, influencer.id as string]);
     } else {
-      db.prepare(`UPDATE influencers SET enrichment_status = 'lookup_failed', last_enriched_at = datetime('now') WHERE id = ?`)
-        .run(influencer.id as string);
+      await db.run(`UPDATE influencers SET enrichment_status = 'lookup_failed', last_enriched_at = NOW() WHERE id = ?`, [influencer.id as string]);
     }
 
     return { id: influencer.id as string, updated: updates, source };
 
   } catch (err) {
-    db.prepare(`UPDATE influencers SET enrichment_status = 'error', last_enriched_at = datetime('now') WHERE id = ?`)
-      .run(influencer.id as string);
+    await db.run(`UPDATE influencers SET enrichment_status = 'error', last_enriched_at = NOW() WHERE id = ?`, [influencer.id as string]);
     return { id: influencer.id as string, updated: {}, source: 'error', error: (err as Error).message };
   }
 }
@@ -194,20 +188,18 @@ async function enrichViaPublicPage(
 }
 
 export async function bulkEnrich(ids?: string[]): Promise<void> {
-  const db = getDb();
-
   let influencers: Record<string, unknown>[];
   if (ids && ids.length > 0) {
     const placeholders = ids.map(() => '?').join(',');
-    influencers = db.prepare(`SELECT * FROM influencers WHERE id IN (${placeholders}) AND is_archived = 0`).all(...ids) as Record<string, unknown>[];
+    influencers = await db.all(`SELECT * FROM influencers WHERE id IN (${placeholders}) AND is_archived = 0`, ids) as Record<string, unknown>[];
   } else {
-    influencers = db.prepare(`
+    influencers = await db.all(`
       SELECT * FROM influencers
       WHERE is_archived = 0
         AND (ig_handle IS NOT NULL OR tiktok_handle IS NOT NULL)
         AND (enrichment_status = 'pending' OR enrichment_status IS NULL)
       LIMIT 50
-    `).all() as Record<string, unknown>[];
+    `, []) as Record<string, unknown>[];
   }
 
   for (const inf of influencers) {

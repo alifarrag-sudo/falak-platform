@@ -1,8 +1,6 @@
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 import { mapHeaders } from '../utils/columnMapper';
 import {
   parseFollowerCount, parseRate, normalizePhone,
@@ -104,16 +102,15 @@ export async function processImport(
   columnOverrides?: Record<string, string>, // { rawColName: schemaField }
   skipDuplicates = false
 ): Promise<ImportResult> {
-  const db = getDb();
   const sessionId = uuidv4();
   const errorDetails: string[] = [];
   let added = 0, updated = 0, duplicates = 0, errors = 0;
 
   // Create import session
-  db.prepare(`
+  await db.run(`
     INSERT INTO import_sessions (id, filename, status)
     VALUES (?, ?, 'processing')
-  `).run(sessionId, filename);
+  `, [sessionId, filename]);
 
   try {
     const wb = XLSX.read(buffer, { type: 'buffer', cellText: true });
@@ -169,12 +166,12 @@ export async function processImport(
           }
 
           // Duplicate detection
-          const dup = findDuplicate(influencer);
+          const dup = await findDuplicate(influencer);
           if (dup) {
             duplicates++;
             if (!skipDuplicates) {
               // Update existing record
-              updateInfluencer(dup.id, influencer);
+              await updateInfluencer(dup.id, influencer);
               updated++;
               duplicates--;
             }
@@ -182,7 +179,7 @@ export async function processImport(
           }
 
           // Insert new
-          insertInfluencer(influencer);
+          await insertInfluencer(influencer);
           added++;
 
         } catch (rowErr) {
@@ -193,7 +190,7 @@ export async function processImport(
     }
 
     // Update session
-    db.prepare(`
+    await db.run(`
       UPDATE import_sessions SET
         status = 'completed',
         added = ?,
@@ -201,13 +198,13 @@ export async function processImport(
         duplicates = ?,
         errors = ?,
         error_details = ?,
-        completed_at = datetime('now')
+        completed_at = NOW()
       WHERE id = ?
-    `).run(added, updated, duplicates, errors, JSON.stringify(errorDetails), sessionId);
+    `, [added, updated, duplicates, errors, JSON.stringify(errorDetails), sessionId]);
 
   } catch (err) {
-    db.prepare(`UPDATE import_sessions SET status = 'failed', error_details = ? WHERE id = ?`)
-      .run(JSON.stringify([(err as Error).message]), sessionId);
+    await db.run(`UPDATE import_sessions SET status = 'failed', error_details = ? WHERE id = ?`,
+      [JSON.stringify([(err as Error).message]), sessionId]);
     throw err;
   }
 
@@ -344,27 +341,22 @@ function cleanStr(val: unknown): string | null {
   return str;
 }
 
-function findDuplicate(influencer: Record<string, unknown>): { id: string } | null {
-  const db = getDb();
-
+async function findDuplicate(influencer: Record<string, unknown>): Promise<{ id: string } | null> {
   // Check by IG handle
   if (influencer.ig_handle) {
-    const row = db.prepare('SELECT id FROM influencers WHERE ig_handle = ? AND is_archived = 0')
-      .get(influencer.ig_handle as string) as { id: string } | undefined;
+    const row = await db.get('SELECT id FROM influencers WHERE ig_handle = ? AND is_archived = 0', [influencer.ig_handle]) as { id: string } | undefined;
     if (row) return row;
   }
 
   // Check by TikTok handle
   if (influencer.tiktok_handle) {
-    const row = db.prepare('SELECT id FROM influencers WHERE tiktok_handle = ? AND is_archived = 0')
-      .get(influencer.tiktok_handle as string) as { id: string } | undefined;
+    const row = await db.get('SELECT id FROM influencers WHERE tiktok_handle = ? AND is_archived = 0', [influencer.tiktok_handle]) as { id: string } | undefined;
     if (row) return row;
   }
 
   // Check by name similarity
   if (influencer.name_english) {
-    const candidates = db.prepare('SELECT id, name_english FROM influencers WHERE is_archived = 0')
-      .all() as { id: string; name_english: string }[];
+    const candidates = await db.all('SELECT id, name_english FROM influencers WHERE is_archived = 0', []) as { id: string; name_english: string }[];
 
     for (const c of candidates) {
       if (c.name_english && nameSimilarity(c.name_english, influencer.name_english as string) >= 0.9) {
@@ -376,18 +368,15 @@ function findDuplicate(influencer: Record<string, unknown>): { id: string } | nu
   return null;
 }
 
-function insertInfluencer(inf: Record<string, unknown>): void {
-  const db = getDb();
+async function insertInfluencer(inf: Record<string, unknown>): Promise<void> {
   const fields = Object.keys(inf).filter(k => inf[k] !== null && inf[k] !== undefined);
   const placeholders = fields.map(() => '?').join(', ');
   const values = fields.map(f => inf[f]);
 
-  db.prepare(`INSERT OR IGNORE INTO influencers (${fields.join(', ')}) VALUES (${placeholders})`)
-    .run(...values as P[]);
+  await db.run(`INSERT INTO influencers (${fields.join(', ')}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`, values);
 }
 
-function updateInfluencer(id: string, inf: Record<string, unknown>): void {
-  const db = getDb();
+async function updateInfluencer(id: string, inf: Record<string, unknown>): Promise<void> {
   const updateFields = Object.keys(inf).filter(k =>
     !['id', 'created_at'].includes(k) && inf[k] !== null && inf[k] !== undefined
   );
@@ -396,6 +385,5 @@ function updateInfluencer(id: string, inf: Record<string, unknown>): void {
   const setClause = updateFields.map(f => `${f} = ?`).join(', ');
   const values = updateFields.map(f => inf[f]);
 
-  db.prepare(`UPDATE influencers SET ${setClause}, updated_at = datetime('now') WHERE id = ?`)
-    .run(...values as P[], id);
+  await db.run(`UPDATE influencers SET ${setClause}, updated_at = NOW() WHERE id = ?`, [...values, id]);
 }

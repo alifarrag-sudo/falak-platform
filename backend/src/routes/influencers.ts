@@ -1,14 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../db/schema';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
+import { db } from '../db/connection';
+import liveEmitter from '../events/liveEmitter';
 
 const router = Router();
 
+/** Returns true when demo records should be hidden (LIVE_VIEW_MODE or ?demo=false) */
+function filterDemo(req: Request): boolean {
+  return process.env.LIVE_VIEW_MODE === 'true' || req.query.demo === 'false';
+}
+
 // GET /api/influencers - list with search, filter, sort, pagination
-router.get('/', (req: Request, res: Response) => {
-  const db = getDb();
+router.get('/', async (req: Request, res: Response) => {
   const {
     search, category, platform, tier, country, city, nationality,
     mawthouq, hasPhone, supplierSource, tags,
@@ -22,15 +25,22 @@ router.get('/', (req: Request, res: Response) => {
   const limitNum = Math.min(200, Math.max(1, parseInt(limit)));
   const offset = (pageNum - 1) * limitNum;
 
-  let whereClauses: string[] = ['i.is_archived = 0'];
+  const whereClauses: string[] = ['i.is_archived = 0'];
+  if (filterDemo(req)) whereClauses.push('i.is_demo = 0');
   const params: unknown[] = [];
 
   // Full-text search (includes Arabic)
   if (search) {
-    whereClauses.push(`i.id IN (
-      SELECT id FROM influencers_fts WHERE influencers_fts MATCH ?
-    )`);
-    params.push(search.replace(/['"*]/g, '') + '*');
+    const isPostgres = !!process.env.DATABASE_URL;
+    if (isPostgres) {
+      whereClauses.push(`i.search_vector @@ plainto_tsquery('simple', ?)`);
+      params.push(search.trim());
+    } else {
+      whereClauses.push(`i.id IN (
+        SELECT id FROM influencers_fts WHERE influencers_fts MATCH ?
+      )`);
+      params.push(search.replace(/['"*]/g, '') + '*');
+    }
   }
 
   if (category) {
@@ -142,15 +152,15 @@ router.get('/', (req: Request, res: Response) => {
   const orderBy = validSortFields[sortBy] || 'i.created_at';
   const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
 
-  const countRow = db.prepare(`SELECT COUNT(*) as total FROM influencers i ${where}`).get(...params as P[]) as { total: number };
+  const countRow = await db.get(`SELECT COUNT(*) as total FROM influencers i ${where}`, params) as { total: number };
   const total = countRow.total;
 
-  const rows = db.prepare(`
+  const rows = await db.all(`
     SELECT i.* FROM influencers i
     ${where}
     ORDER BY ${orderBy} ${dir}
     LIMIT ? OFFSET ?
-  `).all(...params as P[], limitNum, offset);
+  `, [...params, limitNum, offset]);
 
   res.json({
     data: rows,
@@ -164,9 +174,8 @@ router.get('/', (req: Request, res: Response) => {
 });
 
 // GET /api/influencers/export/csv — download all influencers as CSV
-router.get('/export/csv', (_req: Request, res: Response) => {
-  const db = getDb();
-  const rows = db.prepare(`
+router.get('/export/csv', async (_req: Request, res: Response) => {
+  const rows = await db.all(`
     SELECT id, name_english, name_arabic, ig_handle, tiktok_handle, snap_handle,
            ig_followers, tiktok_followers, snap_followers,
            main_category, account_tier, nationality, country, city,
@@ -175,7 +184,7 @@ router.get('/export/csv', (_req: Request, res: Response) => {
            created_at, updated_at
     FROM influencers WHERE is_archived = 0
     ORDER BY created_at DESC
-  `).all() as Record<string, unknown>[];
+  `, []) as Record<string, unknown>[];
 
   if (rows.length === 0) {
     res.setHeader('Content-Type', 'text/csv');
@@ -202,11 +211,10 @@ router.get('/export/csv', (_req: Request, res: Response) => {
 });
 
 // GET /api/influencers/public — paginated public creator directory (no auth required)
-router.get('/public', (req: Request, res: Response) => {
-  const db = getDb();
+router.get('/public', async (req: Request, res: Response) => {
   const { search, category, platform, page = '1', limit = '24' } = req.query;
   const conditions: string[] = ['is_archived = 0'];
-  const params: P[] = [];
+  const params: unknown[] = [];
 
   if (search) {
     conditions.push(`(name_english LIKE ? OR ig_handle LIKE ? OR tiktok_handle LIKE ?)`);
@@ -221,8 +229,8 @@ router.get('/public', (req: Request, res: Response) => {
   const where = 'WHERE ' + conditions.join(' AND ');
   const offset = (parseInt(String(page)) - 1) * parseInt(String(limit));
 
-  const total = (db.prepare(`SELECT COUNT(*) as n FROM influencers ${where}`).get(...params as P[]) as { n: number }).n;
-  const rows = db.prepare(`
+  const totalRow = await db.get(`SELECT COUNT(*) as n FROM influencers ${where}`, params) as { n: number };
+  const rows = await db.all(`
     SELECT id, name_english, name_arabic, ig_handle, tiktok_handle, snap_handle,
            ig_followers, tiktok_followers, snap_followers,
            profile_photo_url, main_category, account_tier,
@@ -231,15 +239,14 @@ router.get('/public', (req: Request, res: Response) => {
     FROM influencers ${where}
     ORDER BY ig_followers DESC NULLS LAST
     LIMIT ? OFFSET ?
-  `).all(...params as P[], parseInt(String(limit)), offset) as Record<string, unknown>[];
+  `, [...params, parseInt(String(limit)), offset]);
 
-  res.json({ data: rows, total, page: parseInt(String(page)), limit: parseInt(String(limit)) });
+  res.json({ data: rows, total: totalRow.n, page: parseInt(String(page)), limit: parseInt(String(limit)) });
 });
 
 // GET /api/influencers/:id/public — public-safe profile (no contact/rates/notes)
-router.get('/:id/public', (req: Request, res: Response) => {
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM influencers WHERE id = ? AND is_archived = 0').get(req.params.id) as Record<string, unknown> | undefined;
+router.get('/:id/public', async (req: Request, res: Response) => {
+  const row = await db.get('SELECT * FROM influencers WHERE id = ? AND is_archived = 0', [req.params.id]) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Influencer not found' });
 
   // Strip private fields
@@ -253,7 +260,7 @@ router.get('/:id/public', (req: Request, res: Response) => {
   }
 
   // Latest platform_stats per platform
-  const stats = db.prepare(`
+  const stats = await db.all(`
     SELECT DISTINCT platform,
       first_value(follower_count) OVER w AS follower_count,
       first_value(avg_engagement_rate) OVER w AS avg_engagement_rate,
@@ -264,24 +271,23 @@ router.get('/:id/public', (req: Request, res: Response) => {
     FROM platform_stats
     WHERE influencer_id = ?
     WINDOW w AS (PARTITION BY platform ORDER BY captured_at DESC)
-  `).all(req.params.id as P) as Record<string, unknown>[];
+  `, [req.params.id]);
 
   // Top posts
-  const posts = db.prepare(`
+  const posts = await db.all(`
     SELECT id, platform, post_url, thumbnail_url, caption, media_type,
            likes, comments, views, shares, posted_at, is_pinned
     FROM influencer_posts
     WHERE influencer_id = ?
     ORDER BY is_pinned DESC, (likes + comments + views) DESC
     LIMIT 12
-  `).all(req.params.id as P) as Record<string, unknown>[];
+  `, [req.params.id]);
 
   return res.json({ ...pub, platform_stats: stats, top_posts: posts });
 });
 
 // GET /api/influencers/:id/posts — top/recent posts
-router.get('/:id/posts', (req: Request, res: Response) => {
-  const db = getDb();
+router.get('/:id/posts', async (req: Request, res: Response) => {
   const { platform, limit = '12' } = req.query as Record<string, string>;
   let query = `
     SELECT id, platform, post_url, thumbnail_url, caption, media_type,
@@ -292,23 +298,21 @@ router.get('/:id/posts', (req: Request, res: Response) => {
   if (platform) { query += ' AND platform = ?'; params.push(platform); }
   query += ' ORDER BY is_pinned DESC, (likes + comments + views) DESC LIMIT ?';
   params.push(Math.min(24, parseInt(limit)));
-  const posts = db.prepare(query).all(...params as P[]);
+  const posts = await db.all(query, params);
   return res.json({ posts });
 });
 
 // GET /api/influencers/:id/performance — compute performance score from offer history
-router.get('/:id/performance', (req: Request, res: Response) => {
-  const db = getDb();
-
-  const offers = db.prepare(`
+router.get('/:id/performance', async (req: Request, res: Response) => {
+  const offers = await db.all(`
     SELECT status FROM portal_offers WHERE influencer_id = ?
-  `).all(req.params.id) as { status: string }[];
+  `, [req.params.id]) as { status: string }[];
 
-  const deliverables = db.prepare(`
+  const deliverables = await db.all(`
     SELECT d.status FROM portal_deliverables d
     JOIN portal_offers o ON d.offer_id = o.id
     WHERE o.influencer_id = ?
-  `).all(req.params.id) as { status: string }[];
+  `, [req.params.id]) as { status: string }[];
 
   const total = offers.length;
   const accepted  = offers.filter(o => ['accepted','in_progress','submitted','approved','completed'].includes(o.status)).length;
@@ -343,24 +347,22 @@ router.get('/:id/performance', (req: Request, res: Response) => {
 });
 
 // GET /api/influencers/duplicates — find likely duplicates (same ig_handle or tiktok_handle)
-router.get('/duplicates', (_req: Request, res: Response) => {
-  const db = getDb();
-
-  const byIg = db.prepare(`
-    SELECT ig_handle, COUNT(*) as cnt, GROUP_CONCAT(id, ',') as ids
+router.get('/duplicates', async (_req: Request, res: Response) => {
+  const byIg = await db.all(`
+    SELECT ig_handle, COUNT(*) as cnt, string_agg(id, ',') as ids
     FROM influencers
     WHERE is_archived = 0 AND ig_handle IS NOT NULL AND ig_handle != ''
     GROUP BY LOWER(TRIM(ig_handle))
-    HAVING cnt > 1
-  `).all() as { ig_handle: string; cnt: number; ids: string }[];
+    HAVING COUNT(*) > 1
+  `, []) as { ig_handle: string; cnt: number; ids: string }[];
 
-  const byTiktok = db.prepare(`
-    SELECT tiktok_handle, COUNT(*) as cnt, GROUP_CONCAT(id, ',') as ids
+  const byTiktok = await db.all(`
+    SELECT tiktok_handle, COUNT(*) as cnt, string_agg(id, ',') as ids
     FROM influencers
     WHERE is_archived = 0 AND tiktok_handle IS NOT NULL AND tiktok_handle != ''
     GROUP BY LOWER(TRIM(tiktok_handle))
-    HAVING cnt > 1
-  `).all() as { tiktok_handle: string; cnt: number; ids: string }[];
+    HAVING COUNT(*) > 1
+  `, []) as { tiktok_handle: string; cnt: number; ids: string }[];
 
   const seen = new Set<string>();
   const groups: { reason: string; ids: string[] }[] = [];
@@ -374,35 +376,33 @@ router.get('/duplicates', (_req: Request, res: Response) => {
     if (!seen.has(key)) { seen.add(key); groups.push({ reason: `Same TikTok handle: @${row.tiktok_handle}`, ids: row.ids.split(',') }); }
   }
 
-  const result = groups.map(g => ({
+  const result = await Promise.all(groups.map(async g => ({
     reason: g.reason,
-    influencers: g.ids.map(id =>
-      db.prepare(`SELECT id, name_english, name_arabic, ig_handle, tiktok_handle, ig_followers, tiktok_followers, created_at FROM influencers WHERE id = ?`).get(id as P)
-    ).filter(Boolean),
-  }));
+    influencers: (await Promise.all(g.ids.map(id =>
+      db.get(`SELECT id, name_english, name_arabic, ig_handle, tiktok_handle, ig_followers, tiktok_followers, created_at FROM influencers WHERE id = ?`, [id])
+    ))).filter(Boolean),
+  })));
 
   res.json(result);
 });
 
 // GET /api/influencers/:id
-router.get('/:id', (req: Request, res: Response) => {
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM influencers WHERE id = ? AND is_archived = 0').get(req.params.id) as Record<string, unknown> | undefined;
+router.get('/:id', async (req: Request, res: Response) => {
+  const row = await db.get('SELECT * FROM influencers WHERE id = ? AND is_archived = 0', [req.params.id]) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: 'Influencer not found' });
 
   // Augment with latest platform_stats and trust_score
-  const latestStats = db.prepare(`
+  const latestStats = await db.all(`
     SELECT platform, follower_count, avg_engagement_rate, avg_views, data_source, captured_at
     FROM platform_stats WHERE influencer_id = ?
     GROUP BY platform HAVING captured_at = MAX(captured_at)
-  `).all(req.params.id as P) as Record<string, unknown>[];
+  `, [req.params.id]);
 
   return res.json({ ...row, platform_stats: latestStats });
 });
 
 // POST /api/influencers
-router.post('/', (req: Request, res: Response) => {
-  const db = getDb();
+router.post('/', async (req: Request, res: Response) => {
   const id = uuidv4();
   const data = { ...req.body, id, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
 
@@ -410,15 +410,22 @@ router.post('/', (req: Request, res: Response) => {
   const placeholders = fields.map(() => '?').join(', ');
   const values = fields.map((f: string) => data[f]);
 
-  db.prepare(`INSERT INTO influencers (${fields.join(', ')}) VALUES (${placeholders})`).run(...values);
-  const created = db.prepare('SELECT * FROM influencers WHERE id = ?').get(id);
+  await db.run(`INSERT INTO influencers (${fields.join(', ')}) VALUES (${placeholders})`, values);
+  const created = await db.get('SELECT * FROM influencers WHERE id = ?', [id]) as Record<string, unknown>;
+
+  // Broadcast to live SSE clients
+  liveEmitter.emit('event', {
+    type: 'new_influencer',
+    data: { id: created?.id, name: created?.name_english || created?.name_arabic, country: created?.country },
+    ts: new Date().toISOString(),
+  });
+
   return res.status(201).json(created);
 });
 
 // PUT /api/influencers/:id
-router.put('/:id', (req: Request, res: Response) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT * FROM influencers WHERE id = ? AND is_archived = 0').get(req.params.id) as Record<string, unknown> | undefined;
+router.put('/:id', async (req: Request, res: Response) => {
+  const existing = await db.get('SELECT * FROM influencers WHERE id = ? AND is_archived = 0', [req.params.id]) as Record<string, unknown> | undefined;
   if (!existing) return res.status(404).json({ error: 'Influencer not found' });
 
   const updates = req.body as Record<string, unknown>;
@@ -437,66 +444,61 @@ router.put('/:id', (req: Request, res: Response) => {
   const setClause = fields.map(f => `${f} = ?`).join(', ');
   const values = fields.map((f: string) => updates[f]);
 
-  db.prepare(`UPDATE influencers SET ${setClause}, updated_at = datetime('now') WHERE id = ?`)
-    .run(...values as P[], req.params.id);
+  await db.run(`UPDATE influencers SET ${setClause}, updated_at = NOW() WHERE id = ?`,
+    [...values, req.params.id]);
 
   // Write edit log
-  const logStmt = db.prepare(`
-    INSERT INTO edit_log (id, influencer_id, field_name, old_value, new_value, edited_by)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
   for (const entry of logEntries) {
-    logStmt.run(uuidv4(), req.params.id, entry.field,
-      String(entry.old ?? ''), String(entry.new ?? ''), 'admin');
+    await db.run(`
+      INSERT INTO edit_log (id, influencer_id, field_name, old_value, new_value, edited_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [uuidv4(), req.params.id, entry.field, String(entry.old ?? ''), String(entry.new ?? ''), 'admin']);
   }
 
-  const updated = db.prepare('SELECT * FROM influencers WHERE id = ?').get(req.params.id);
+  const updated = await db.get('SELECT * FROM influencers WHERE id = ?', [req.params.id]);
   return res.json(updated);
 });
 
 // DELETE /api/influencers/:id (soft delete)
-router.delete('/:id', (req: Request, res: Response) => {
-  const db = getDb();
-  db.prepare(`UPDATE influencers SET is_archived = 1, updated_at = datetime('now') WHERE id = ?`)
-    .run(req.params.id);
+router.delete('/:id', async (req: Request, res: Response) => {
+  await db.run(`UPDATE influencers SET is_archived = 1, updated_at = NOW() WHERE id = ?`, [req.params.id]);
   return res.json({ success: true });
 });
 
 // GET /api/influencers/meta/filters - get unique values for filters
-router.get('/meta/filters', (_req: Request, res: Response) => {
-  const db = getDb();
-  const categories = db.prepare(`
+router.get('/meta/filters', async (_req: Request, res: Response) => {
+  const categories = await db.all(`
     SELECT DISTINCT main_category FROM influencers
     WHERE main_category IS NOT NULL AND is_archived = 0
     ORDER BY main_category
-  `).all() as { main_category: string }[];
+  `, []) as { main_category: string }[];
 
-  const countries = db.prepare(`
+  const countries = await db.all(`
     SELECT DISTINCT country FROM influencers
     WHERE country IS NOT NULL AND is_archived = 0
     ORDER BY country
-  `).all() as { country: string }[];
+  `, []) as { country: string }[];
 
-  const sources = db.prepare(`
+  const sources = await db.all(`
     SELECT DISTINCT supplier_source FROM influencers
     WHERE supplier_source IS NOT NULL AND is_archived = 0
     ORDER BY supplier_source
-  `).all() as { supplier_source: string }[];
+  `, []) as { supplier_source: string }[];
 
-  const tiers = db.prepare(`
+  const tiers = await db.all(`
     SELECT DISTINCT account_tier FROM influencers
     WHERE account_tier IS NOT NULL AND is_archived = 0
     ORDER BY account_tier
-  `).all() as { account_tier: string }[];
+  `, []) as { account_tier: string }[];
 
-  const stats = db.prepare(`
+  const stats = await db.get(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN mawthouq_certificate = 1 THEN 1 ELSE 0 END) as mawthouq_count,
       MAX(COALESCE(ig_followers, tiktok_followers, snap_followers, 0)) as max_followers,
       MAX(COALESCE(ig_rate, tiktok_rate, package_rate, 0)) as max_rate
     FROM influencers WHERE is_archived = 0
-  `).get() as Record<string, number>;
+  `, []) as Record<string, number>;
 
   return res.json({
     categories: categories.map(r => r.main_category),
@@ -508,23 +510,21 @@ router.get('/meta/filters', (_req: Request, res: Response) => {
 });
 
 // GET /api/influencers/:id/history - edit history
-router.get('/:id/history', (req: Request, res: Response) => {
-  const db = getDb();
-  const rows = db.prepare(`
+router.get('/:id/history', async (req: Request, res: Response) => {
+  const rows = await db.all(`
     SELECT * FROM edit_log WHERE influencer_id = ? ORDER BY edited_at DESC LIMIT 100
-  `).all(req.params.id);
+  `, [req.params.id]);
   return res.json(rows);
 });
 
 // POST /api/influencers/:id/invite — generate a portal invite link for this influencer
-router.post('/:id/invite', (req: Request, res: Response) => {
-  const db = getDb();
-  const inf = db.prepare('SELECT id, name_english, name_arabic, email FROM influencers WHERE id = ? AND is_archived = 0').get(req.params.id) as Record<string, unknown> | undefined;
+router.post('/:id/invite', async (req: Request, res: Response) => {
+  const inf = await db.get('SELECT id, name_english, name_arabic, email FROM influencers WHERE id = ? AND is_archived = 0', [req.params.id]) as Record<string, unknown> | undefined;
   if (!inf) return res.status(404).json({ error: 'Influencer not found' });
 
   // Generate a unique 32-char token
   const token = uuidv4().replace(/-/g, '');
-  db.prepare(`UPDATE influencers SET invite_token = ? WHERE id = ?`).run(token, req.params.id);
+  await db.run(`UPDATE influencers SET invite_token = ? WHERE id = ?`, [token, req.params.id]);
 
   // The invite URL points to the portal register page with the token
   const baseUrl = req.headers.origin || `${req.protocol}://${req.headers.host}`;
@@ -534,33 +534,31 @@ router.post('/:id/invite', (req: Request, res: Response) => {
 });
 
 // POST /api/influencers/merge — merge duplicates into one primary record
-router.post('/merge', (req: Request, res: Response) => {
+router.post('/merge', async (req: Request, res: Response) => {
   const { primary_id, duplicate_ids } = req.body as { primary_id: string; duplicate_ids: string[] };
   if (!primary_id || !Array.isArray(duplicate_ids) || duplicate_ids.length === 0) {
     return res.status(400).json({ error: 'primary_id and duplicate_ids are required' });
   }
 
-  const db = getDb();
-  const primary = db.prepare('SELECT * FROM influencers WHERE id = ?').get(primary_id) as Record<string, unknown> | undefined;
+  const primary = await db.get('SELECT * FROM influencers WHERE id = ?', [primary_id]) as Record<string, unknown> | undefined;
   if (!primary) return res.status(404).json({ error: 'Primary influencer not found' });
 
   for (const dupId of duplicate_ids) {
     if (dupId === primary_id) continue;
     // Re-point campaign entries
-    db.prepare(`UPDATE campaign_influencers SET influencer_id = ? WHERE influencer_id = ?`).run(primary_id, dupId);
+    await db.run(`UPDATE campaign_influencers SET influencer_id = ? WHERE influencer_id = ?`, [primary_id, dupId]);
     // Re-point offers
-    db.prepare(`UPDATE portal_offers SET influencer_id = ? WHERE influencer_id = ?`).run(primary_id, dupId);
+    await db.run(`UPDATE portal_offers SET influencer_id = ? WHERE influencer_id = ?`, [primary_id, dupId]);
     // Archive the duplicate
-    db.prepare(`UPDATE influencers SET is_archived = 1, updated_at = datetime('now') WHERE id = ?`).run(dupId);
+    await db.run(`UPDATE influencers SET is_archived = 1, updated_at = NOW() WHERE id = ?`, [dupId]);
   }
 
-  const merged = db.prepare('SELECT * FROM influencers WHERE id = ?').get(primary_id);
+  const merged = await db.get('SELECT * FROM influencers WHERE id = ?', [primary_id]);
   res.json({ success: true, primary: merged, merged_count: duplicate_ids.length });
 });
 
 // POST /api/influencers/bulk-invite — generate portal invite links for multiple influencers
-router.post('/bulk-invite', (req: Request, res: Response) => {
-  const db = getDb();
+router.post('/bulk-invite', async (req: Request, res: Response) => {
   const { ids } = req.body as { ids: string[] };
   if (!Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'ids array required' });
@@ -570,10 +568,10 @@ router.post('/bulk-invite', (req: Request, res: Response) => {
   const results: { id: string; name: string; invite_url: string }[] = [];
 
   for (const id of ids) {
-    const inf = db.prepare('SELECT id, name_english, name_arabic FROM influencers WHERE id = ? AND is_archived = 0').get(id) as Record<string, unknown> | undefined;
+    const inf = await db.get('SELECT id, name_english, name_arabic FROM influencers WHERE id = ? AND is_archived = 0', [id]) as Record<string, unknown> | undefined;
     if (!inf) continue;
     const token = uuidv4().replace(/-/g, '');
-    db.prepare(`UPDATE influencers SET invite_token = ? WHERE id = ?`).run(token, id);
+    await db.run(`UPDATE influencers SET invite_token = ? WHERE id = ?`, [token, id]);
     results.push({
       id,
       name: String(inf.name_english || inf.name_arabic || id),
@@ -585,28 +583,27 @@ router.post('/bulk-invite', (req: Request, res: Response) => {
 });
 
 // GET /api/influencers/export/contacts — export contact details for given ids
-router.get('/export/contacts', (req: Request, res: Response) => {
-  const db = getDb();
+router.get('/export/contacts', async (req: Request, res: Response) => {
   const { ids } = req.query as { ids?: string };
   let rows: Record<string, unknown>[];
 
   if (ids) {
     const idList = ids.split(',').filter(Boolean);
     const placeholders = idList.map(() => '?').join(',');
-    rows = db.prepare(`
+    rows = await db.all(`
       SELECT id, name_english, name_arabic, ig_handle, tiktok_handle, snap_handle,
              email, phone, country, city, main_category, ig_followers, tiktok_followers,
              ig_rate, tiktok_rate, account_tier, tags
       FROM influencers WHERE id IN (${placeholders}) AND is_archived = 0
-    `).all(...idList) as Record<string, unknown>[];
+    `, idList) as Record<string, unknown>[];
   } else {
-    rows = db.prepare(`
+    rows = await db.all(`
       SELECT id, name_english, name_arabic, ig_handle, tiktok_handle, snap_handle,
              email, phone, country, city, main_category, ig_followers, tiktok_followers,
              ig_rate, tiktok_rate, account_tier, tags
       FROM influencers WHERE is_archived = 0
       ORDER BY created_at DESC LIMIT 5000
-    `).all() as Record<string, unknown>[];
+    `, []) as Record<string, unknown>[];
   }
 
   if (rows.length === 0) {
@@ -633,14 +630,13 @@ router.get('/export/contacts', (req: Request, res: Response) => {
 });
 
 // POST /api/influencers/bulk-delete
-router.post('/bulk-delete', (req: Request, res: Response) => {
-  const db = getDb();
+router.post('/bulk-delete', async (req: Request, res: Response) => {
   const { ids } = req.body as { ids: string[] };
   if (!Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'ids array required' });
   }
   const placeholders = ids.map(() => '?').join(',');
-  db.prepare(`UPDATE influencers SET is_archived = 1 WHERE id IN (${placeholders})`).run(...ids);
+  await db.run(`UPDATE influencers SET is_archived = 1 WHERE id IN (${placeholders})`, ids);
   return res.json({ success: true, count: ids.length });
 });
 

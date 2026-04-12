@@ -9,10 +9,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import jwt from 'jsonwebtoken';
-import { getDb } from '../db/schema';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
+import { db } from '../db/connection';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
@@ -23,7 +20,7 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role: string };
-    (req as P).user = decoded;
+    (req as Request & { user: unknown }).user = decoded;
     return next();
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
@@ -31,16 +28,15 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 // POST /api/ratings/:offerId — submit or update rating
-router.post('/:offerId', requireAuth, (req: Request, res: Response) => {
-  const user = (req as P).user as { id: string; role: string };
+router.post('/:offerId', requireAuth, async (req: Request, res: Response) => {
+  const user = (req as Request & { user: { id: string; role: string } }).user;
   const { rating, review } = req.body as { rating?: number; review?: string };
 
   if (!rating || rating < 1 || rating > 5) {
     return res.status(400).json({ error: 'Rating must be between 1 and 5' });
   }
 
-  const db = getDb();
-  const offer = db.prepare('SELECT id, status, created_by FROM portal_offers WHERE id = ?').get(req.params.offerId as P) as
+  const offer = await db.get('SELECT id, status, created_by FROM portal_offers WHERE id = ?', [req.params.offerId]) as
     { id: string; status: string; created_by: string | null } | undefined;
 
   if (!offer) return res.status(404).json({ error: 'Offer not found' });
@@ -50,51 +46,47 @@ router.post('/:offerId', requireAuth, (req: Request, res: Response) => {
   }
 
   // Upsert rating
-  const existing = db.prepare('SELECT id FROM offer_ratings WHERE offer_id = ?').get(req.params.offerId as P) as { id: string } | undefined;
+  const existing = await db.get('SELECT id FROM offer_ratings WHERE offer_id = ?', [req.params.offerId]) as { id: string } | undefined;
 
   if (existing) {
-    db.prepare('UPDATE offer_ratings SET rating = ?, review = ? WHERE offer_id = ?')
-      .run(rating as P, (review || null) as P, req.params.offerId as P);
+    await db.run('UPDATE offer_ratings SET rating = ?, review = ? WHERE offer_id = ?', [rating, review || null, req.params.offerId]);
   } else {
-    db.prepare(`
+    await db.run(`
       INSERT INTO offer_ratings (id, offer_id, rater_type, rater_id, rating, review)
       VALUES (?, ?, 'agency', ?, ?, ?)
-    `).run(uuidv4() as P, req.params.offerId as P, user.id as P, rating as P, (review || null) as P);
+    `, [uuidv4(), req.params.offerId, user.id, rating, review || null]);
   }
 
-  const updated = db.prepare('SELECT * FROM offer_ratings WHERE offer_id = ?').get(req.params.offerId as P);
+  const updated = await db.get('SELECT * FROM offer_ratings WHERE offer_id = ?', [req.params.offerId]);
   return res.json({ rating: updated });
 });
 
 // GET /api/ratings/:offerId
-router.get('/:offerId', (req: Request, res: Response) => {
-  const db = getDb();
-  const rating = db.prepare('SELECT * FROM offer_ratings WHERE offer_id = ?').get(req.params.offerId as P);
+router.get('/:offerId', async (req: Request, res: Response) => {
+  const rating = await db.get('SELECT * FROM offer_ratings WHERE offer_id = ?', [req.params.offerId]);
   return res.json({ rating: rating || null });
 });
 
 // GET /api/ratings/influencer/:id — aggregate + history for an influencer portal user
-router.get('/influencer/:id', (req: Request, res: Response) => {
-  const db = getDb();
-
+router.get('/influencer/:id', async (req: Request, res: Response) => {
   // Offers belonging to this portal user
-  const avg = db.prepare(`
+  const avg = await db.get(`
     SELECT
       AVG(r.rating) AS avg_rating,
       COUNT(r.id)   AS total_ratings
     FROM offer_ratings r
     JOIN portal_offers po ON po.id = r.offer_id
     WHERE po.portal_user_id = ?
-  `).get(req.params.id as P) as { avg_rating: number | null; total_ratings: number };
+  `, [req.params.id]) as { avg_rating: number | null; total_ratings: number };
 
-  const list = db.prepare(`
+  const list = await db.all(`
     SELECT r.rating, r.review, r.created_at, po.title AS offer_title
     FROM offer_ratings r
     JOIN portal_offers po ON po.id = r.offer_id
     WHERE po.portal_user_id = ?
     ORDER BY r.created_at DESC
     LIMIT 50
-  `).all(req.params.id as P);
+  `, [req.params.id]);
 
   return res.json({
     avg_rating: avg.avg_rating ? Math.round(avg.avg_rating * 10) / 10 : null,

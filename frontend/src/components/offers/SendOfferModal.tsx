@@ -21,7 +21,7 @@ import { cn } from '../../utils/helpers';
 
 const PLATFORMS = ['Instagram', 'TikTok', 'Snapchat', 'Facebook', 'YouTube', 'Twitter'];
 const CONTENT_TYPES = ['Post', 'Story', 'Reel', 'Video', 'Carousel', 'Live'];
-const CURRENCIES = ['EGP', 'SAR', 'AED', 'USD', 'KWD', 'BHD'];
+const CURRENCIES = ['SAR', 'AED', 'KWD', 'QAR', 'EGP', 'USD'];
 
 const MARKET_RATES: Record<string, string> = {
   'Instagram_Post':   '2,000–8,000',
@@ -64,7 +64,7 @@ const DEFAULT_FORM: OfferForm = {
   brief: '',
   deliverables: '',
   rate: '',
-  currency: 'EGP',
+  currency: 'SAR',
   deadline: '',
   agency_notes: '',
 };
@@ -394,7 +394,7 @@ export default function SendOfferModal({
               <p className="text-xs text-gray-500 mt-1">
                 Market rate for {form.content_type} on {form.platform}:{' '}
                 <span className="text-gray-400 font-medium">
-                  EGP {MARKET_RATES[`${form.platform}_${form.content_type}`] || '—'}
+                  {form.currency} {MARKET_RATES[`${form.platform}_${form.content_type}`] || '—'}
                 </span>
               </p>
             )}

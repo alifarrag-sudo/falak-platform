@@ -1,13 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 import { enrichInfluencer, bulkEnrich } from '../services/enrichmentService';
 
 const router = Router();
 
 // POST /api/enrichment/:id - enrich a single influencer
 router.post('/:id', async (req: Request, res: Response) => {
-  const db = getDb();
-  const influencer = db.prepare('SELECT * FROM influencers WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  const influencer = await db.get('SELECT * FROM influencers WHERE id = ?', [req.params.id]) as Record<string, unknown> | undefined;
   if (!influencer) return res.status(404).json({ error: 'Influencer not found' });
 
   try {
@@ -30,9 +29,8 @@ router.post('/bulk/start', async (req: Request, res: Response) => {
 });
 
 // GET /api/enrichment/status - get enrichment status for all
-router.get('/status', (_req: Request, res: Response) => {
-  const db = getDb();
-  const stats = db.prepare(`
+router.get('/status', async (_req: Request, res: Response) => {
+  const stats = await db.all(`
     SELECT
       enrichment_status,
       COUNT(*) as count,
@@ -40,7 +38,7 @@ router.get('/status', (_req: Request, res: Response) => {
     FROM influencers
     WHERE is_archived = 0
     GROUP BY enrichment_status
-  `).all();
+  `, []);
   return res.json(stats);
 });
 

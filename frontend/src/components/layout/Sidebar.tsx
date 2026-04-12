@@ -7,8 +7,8 @@ import { NavLink } from 'react-router-dom';
 import {
   Users, Megaphone, Settings, Compass, FileText,
   LayoutDashboard, ShieldCheck, BarChart2, Globe, Briefcase,
-  UserCheck, Star, CreditCard, GitMerge, Kanban, CalendarDays, Handshake, TrendingUp, Trophy,
-  X, Send,
+  UserCheck, Star, CreditCard, GitMerge, Kanban, CalendarDays, Handshake, TrendingUp,
+  X, Send, Bot,
 } from 'lucide-react';
 import { cn } from '../../utils/helpers';
 import { useAuth } from '../../contexts/AuthContext';
@@ -43,6 +43,7 @@ const NAV_ITEMS: Record<UserRole | 'default', NavItem[]> = {
     { to: '/revenue',     icon: TrendingUp,       label: 'Revenue'     },
     { to: '/billing',     icon: Star,             label: 'Billing'     },
     { to: '/outreach',    icon: Send,             label: 'Outreach'    },
+    { to: '/agent',       icon: Bot,              label: 'AI Agent'    },
     { to: '/deduplicate', icon: GitMerge,         label: 'Deduplicate' },
     { to: '/settings',    icon: Settings,         label: 'Settings'    },
   ],
@@ -62,6 +63,12 @@ const NAV_ITEMS: Record<UserRole | 'default', NavItem[]> = {
     { to: '/portal/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/portal/offers',    icon: FileText,        label: 'Offers'    },
     { to: '/portal/profile',   icon: Users,           label: 'Profile'   },
+  ],
+  viewer: [
+    { to: '/admin/analytics',   icon: BarChart2,    label: 'Analytics'   },
+    { to: '/admin/influencers', icon: Users,        label: 'Influencers' },
+    { to: '/admin/campaigns',   icon: Megaphone,    label: 'Campaigns'   },
+    { to: '/admin/revenue',     icon: TrendingUp,   label: 'Revenue'     },
   ],
   public: [
     { to: '/creators',  icon: Star,     label: 'Browse Creators' },
@@ -107,6 +114,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     influencer:     'Influencer',
     public:         'Fan',
     talent_manager: 'Manager',
+    viewer:         'Viewer',
   };
 
   return (
@@ -130,6 +138,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           </div>
         </div>
         <button
+          type="button"
+          aria-label="Close sidebar"
           className="ml-auto md:hidden p-1 text-gray-500 hover:text-white"
           onClick={onClose}
         >

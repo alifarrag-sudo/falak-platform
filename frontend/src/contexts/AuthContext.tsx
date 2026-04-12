@@ -13,7 +13,8 @@ export type UserRole =
   | 'brand'
   | 'influencer'
   | 'public'
-  | 'talent_manager';
+  | 'talent_manager'
+  | 'viewer';
 
 export interface AuthUser {
   id: string;
@@ -48,6 +49,7 @@ const ROLE_HOME: Record<UserRole, string> = {
   influencer:     '/portal/dashboard',
   public:         '/creators',
   talent_manager: '/manager/dashboard',
+  viewer:         '/admin/analytics',
 };
 
 const AuthContext = createContext<AuthContextType>(null!);

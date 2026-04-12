@@ -19,26 +19,25 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 import bcrypt from 'bcryptjs';
 import { createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
-import { initializeDatabase, getDb } from '../db/schema';
+import { initializeDatabase } from '../db/schema';
+import { db } from '../db/connection';
 
 function hashFanPassword(pw: string) {
   return createHash('sha256').update(pw + 'fan_salt').digest('hex');
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
-
 const DEMO_PASS_HASH = bcrypt.hashSync('Falak@Demo2026', 10);
 
 /* ── Helpers ────────────────────────────────────────────────────────────────── */
 
-function upsertUser(email: string, role: string, displayName: string) {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email as P) as { id: string } | undefined;
+async function upsertUser(email: string, role: string, displayName: string): Promise<string> {
+  const existing = await db.get<{ id: string }>('SELECT id FROM users WHERE email = ?', [email]);
   if (existing) { console.log(`  ✓ ${role}: ${email}`); return existing.id; }
   const id = uuidv4();
-  db.prepare(`INSERT INTO users (id, email, password_hash, role, display_name, status) VALUES (?, ?, ?, ?, ?, 'active')`)
-    .run(id as P, email as P, DEMO_PASS_HASH as P, role as P, displayName as P);
+  await db.run(
+    `INSERT INTO users (id, email, password_hash, role, display_name, status, is_demo) VALUES (?, ?, ?, ?, ?, 'active', 1)`,
+    [id, email, DEMO_PASS_HASH, role, displayName],
+  );
   console.log(`  + ${role}: ${email}`);
   return id;
 }
@@ -47,24 +46,25 @@ function upsertUser(email: string, role: string, displayName: string) {
 
 async function seed() {
   initializeDatabase();
-  const db = getDb();
 
   /* ── Platform users ──────────────────────────────────────────────────────── */
   console.log('\n── Platform Users ──────────────────────────────────────────');
-  upsertUser('admin@demo.falak.io',   'platform_admin', 'Tarek Mansour (Admin)');
-  upsertUser('agency@demo.falak.io',  'agency',         'New Step Media (Agency)');
-  upsertUser('brand@demo.falak.io',   'brand',          'Juhayna Food Industries');
-  upsertUser('manager@demo.falak.io', 'talent_manager', 'Rania Hassan (Manager)');
+  await upsertUser('admin@demo.falak.io',   'platform_admin', 'Tarek Mansour (Admin)');
+  await upsertUser('agency@demo.falak.io',  'agency',         'New Step Media (Agency)');
+  await upsertUser('brand@demo.falak.io',   'brand',          'Juhayna Food Industries');
+  await upsertUser('manager@demo.falak.io', 'talent_manager', 'Rania Hassan (Manager)');
 
   /* ── Creator portal user ──────────────────────────────────────────────────── */
   console.log('\n── Creator Portal ──────────────────────────────────────────');
   const portalEmail = 'creator@demo.falak.io';
   let portalId: string;
-  const existingPortal = db.prepare('SELECT id FROM portal_users WHERE email = ?').get(portalEmail as P) as { id: string } | undefined;
+  const existingPortal = await db.get<{ id: string }>('SELECT id FROM portal_users WHERE email = ?', [portalEmail]);
   if (!existingPortal) {
     portalId = uuidv4();
-    db.prepare(`INSERT INTO portal_users (id, email, password_hash, name, handle, status) VALUES (?, ?, ?, ?, ?, 'active')`)
-      .run(portalId as P, portalEmail as P, DEMO_PASS_HASH as P, 'Salma El-Masry' as P, '@salma.eg' as P);
+    await db.run(
+      `INSERT INTO portal_users (id, email, password_hash, name, handle, status, is_demo) VALUES (?, ?, ?, ?, ?, 'active', 1)`,
+      [portalId, portalEmail, DEMO_PASS_HASH, 'Salma El-Masry', '@salma.eg'],
+    );
     console.log(`  + Creator portal: ${portalEmail}`);
   } else {
     portalId = existingPortal.id;
@@ -74,14 +74,18 @@ async function seed() {
   /* ── Fan user (fan_users table — separate from main auth) ───────────────── */
   console.log('\n── Fan Account ─────────────────────────────────────────────');
   const fanEmail = 'fan@demo.falak.io';
-  const existingFan = db.prepare('SELECT id FROM fan_users WHERE email = ?').get(fanEmail as P);
+  const existingFan = await db.get('SELECT id FROM fan_users WHERE email = ?', [fanEmail]);
   if (!existingFan) {
     const fanId = uuidv4();
-    db.prepare(`INSERT INTO fan_users (id, email, password, name, username, bio, country) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(fanId as P, fanEmail as P, hashFanPassword('Falak@Demo2026') as P,
-        'Ahmed Nasser' as P, 'ahmed_fan' as P,
-        'Music & lifestyle enthusiast from Cairo 🎵 Love discovering new creators!' as P,
-        'Egypt' as P);
+    await db.run(
+      `INSERT INTO fan_users (id, email, password, name, username, bio, country, is_demo) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+      [
+        fanId, fanEmail, hashFanPassword('Falak@Demo2026'),
+        'Ahmed Nasser', 'ahmed_fan',
+        'Music & lifestyle enthusiast from Cairo 🎵 Love discovering new creators!',
+        'Egypt',
+      ],
+    );
     console.log(`  + Fan (fan_users): ${fanEmail}`);
   } else {
     console.log(`  ✓ Fan (fan_users): ${fanEmail}`);
@@ -371,32 +375,31 @@ async function seed() {
     },
   ];
 
-  const insertInf = db.prepare(`
-    INSERT OR IGNORE INTO influencers (
-      id, name_english, name_arabic, ig_handle, ig_followers, ig_engagement_rate, ig_rate,
-      tiktok_handle, tiktok_followers, tiktok_rate,
-      snap_handle, snap_followers, snapchat_rate,
-      main_category, sub_category_1, account_tier, country, city, phone_number, email,
-      trust_score, mawthouq_certificate, tags, currency
-    ) VALUES (
-      ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?,
-      ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?
-    )
-  `);
-
   for (const inf of influencers) {
-    insertInf.run(
-      inf.id as P, inf.name_english as P, inf.name_arabic as P,
-      inf.ig_handle as P, inf.ig_followers as P, inf.ig_engagement_rate as P, inf.ig_rate as P,
-      (inf.tiktok_handle ?? null) as P, (inf.tiktok_followers ?? null) as P, (inf.tiktok_rate ?? null) as P,
-      (inf.snap_handle ?? null) as P, (inf.snap_followers ?? null) as P, (inf.snapchat_rate ?? null) as P,
-      inf.main_category as P, (inf.sub_category_1 ?? null) as P,
-      inf.account_tier as P, inf.country as P, inf.city as P,
-      inf.phone_number as P, (inf.email ?? null) as P,
-      inf.trust_score as P, inf.mawthouq_certificate as P, inf.tags as P, inf.currency as P
+    await db.run(
+      `INSERT INTO influencers (
+        id, name_english, name_arabic, ig_handle, ig_followers, ig_engagement_rate, ig_rate,
+        tiktok_handle, tiktok_followers, tiktok_rate,
+        snap_handle, snap_followers, snapchat_rate,
+        main_category, sub_category_1, account_tier, country, city, phone_number, email,
+        trust_score, mawthouq_certificate, tags, currency, is_demo
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, 1
+      ) ON CONFLICT (id) DO NOTHING`,
+      [
+        inf.id, inf.name_english, inf.name_arabic,
+        inf.ig_handle, inf.ig_followers, inf.ig_engagement_rate, inf.ig_rate,
+        (inf as any).tiktok_handle ?? null, (inf as any).tiktok_followers ?? null, (inf as any).tiktok_rate ?? null,
+        (inf as any).snap_handle ?? null, (inf as any).snap_followers ?? null, (inf as any).snapchat_rate ?? null,
+        inf.main_category, (inf as any).sub_category_1 ?? null,
+        inf.account_tier, inf.country, inf.city,
+        inf.phone_number, (inf as any).email ?? null,
+        inf.trust_score, inf.mawthouq_certificate, inf.tags, inf.currency,
+      ],
     );
     console.log(`  + ${inf.account_tier.padEnd(5)} ${inf.name_english.padEnd(22)} (@${inf.ig_handle})`);
   }
@@ -404,7 +407,7 @@ async function seed() {
   // Update trust_tier column if it exists
   try {
     for (const inf of influencers) {
-      db.prepare(`UPDATE influencers SET trust_tier = ? WHERE id = ?`).run(inf.trust_tier as P, inf.id as P);
+      await db.run(`UPDATE influencers SET trust_tier = ? WHERE id = ?`, [inf.trust_tier, inf.id]);
     }
   } catch { /* column may not exist yet */ }
 
@@ -420,21 +423,16 @@ async function seed() {
     { idx: 5, shoutout: 200,  video: 400,  photo: 180,  meetup: null, live: null, bio: 'Tech reviewer & gadget nerd 📱 Book a personalised tech advice video or shoutout!' },
   ];
 
-  const updateFanPricing = db.prepare(`
-    UPDATE influencers SET
-      fan_shoutout_price = ?, fan_video_price = ?, fan_photo_price = ?,
-      fan_meetup_price = ?, fan_live_chat_price = ?,
-      fan_bio = ?, fan_requests_enabled = 1, fan_response_time = '24h',
-      currency = 'EGP'
-    WHERE id = ?
-  `);
-
   for (const p of fanPricing) {
     const inf = influencers[p.idx];
-    updateFanPricing.run(
-      p.shoutout as P, p.video as P, (p.photo ?? null) as P,
-      (p.meetup ?? null) as P, (p.live ?? null) as P,
-      p.bio as P, inf.id as P
+    await db.run(
+      `UPDATE influencers SET
+        fan_shoutout_price = ?, fan_video_price = ?, fan_photo_price = ?,
+        fan_meetup_price = ?, fan_live_chat_price = ?,
+        fan_bio = ?, fan_requests_enabled = 1, fan_response_time = '24h',
+        currency = 'EGP'
+      WHERE id = ?`,
+      [p.shoutout, p.video, p.photo ?? null, p.meetup ?? null, p.live ?? null, p.bio, inf.id],
     );
     console.log(`  + Fan pricing set for ${inf.name_english} (from EGP ${p.shoutout})`);
   }
@@ -478,25 +476,29 @@ async function seed() {
     },
   ];
 
-  const insertCamp = db.prepare(`
-    INSERT OR IGNORE INTO campaigns (id, name, client_name, platform_focus, start_date, end_date, budget, status, brief)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
   for (const c of campaigns) {
-    insertCamp.run(c.id as P, c.name as P, c.client_name as P, c.platform_focus as P,
-      c.start_date as P, c.end_date as P, c.budget as P, c.status as P, c.brief as P);
+    await db.run(
+      `INSERT INTO campaigns (id, name, client_name, platform_focus, start_date, end_date, budget, status, brief, is_demo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1) ON CONFLICT (id) DO NOTHING`,
+      [c.id, c.name, c.client_name, c.platform_focus, c.start_date, c.end_date, c.budget, c.status, c.brief],
+    );
     console.log(`  + [${c.status.padEnd(9)}] ${c.name}`);
   }
 
   // Add influencers to campaigns
-  const insertCI = db.prepare(`INSERT OR IGNORE INTO campaign_influencers (id, campaign_id, influencer_id, platform, rate, num_posts) VALUES (?, ?, ?, ?, ?, ?)`);
   // Campaign 1 (Ramadan): macro + mega influencers
   for (let i = 0; i < 4; i++) {
-    insertCI.run(uuidv4() as P, campaigns[0].id as P, influencers[i].id as P, 'Instagram' as P, influencers[i].ig_rate as P, 3 as P);
+    await db.run(
+      `INSERT INTO campaign_influencers (id, campaign_id, influencer_id, platform, rate, num_posts) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      [uuidv4(), campaigns[0].id, influencers[i].id, 'Instagram', influencers[i].ig_rate, 3],
+    );
   }
   // Campaign 3 (Noon, completed): micro influencers
   for (let i = 5; i < 9; i++) {
-    insertCI.run(uuidv4() as P, campaigns[2].id as P, influencers[i].id as P, 'TikTok' as P, influencers[i].tiktok_rate || influencers[i].ig_rate as P, 2 as P);
+    await db.run(
+      `INSERT INTO campaign_influencers (id, campaign_id, influencer_id, platform, rate, num_posts) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      [uuidv4(), campaigns[2].id, influencers[i].id, 'TikTok', (influencers[i] as any).tiktok_rate || influencers[i].ig_rate, 2],
+    );
   }
 
   /* ── Offers ──────────────────────────────────────────────────────────────── */
@@ -661,42 +663,42 @@ Content Format:
     },
   ];
 
-  const insertOffer = db.prepare(`
-    INSERT OR IGNORE INTO portal_offers (id, influencer_id, campaign_id, title, platform, deliverables, brief, agency_notes, rate, currency, status, deadline, payment_status, paid_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
   for (const o of offers) {
-    insertOffer.run(
-      o.id as P, o.influencer_id as P, (o.campaign_id ?? null) as P,
-      o.title as P, o.platform as P, o.deliverables as P,
-      (o.brief ?? null) as P, (o.agency_notes ?? null) as P,
-      o.rate as P, o.currency as P,
-      o.status as P, o.deadline as P,
-      (o.payment_status ?? null) as P,
-      (o.payment_status === 'paid' ? new Date().toISOString() : null) as P,
+    await db.run(
+      `INSERT INTO portal_offers (id, influencer_id, campaign_id, title, platform, deliverables, brief, agency_notes, rate, currency, status, deadline, payment_status, paid_at, is_demo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) ON CONFLICT (id) DO NOTHING`,
+      [
+        o.id, o.influencer_id, o.campaign_id ?? null,
+        o.title, o.platform, o.deliverables,
+        o.brief ?? null, o.agency_notes ?? null,
+        o.rate, o.currency,
+        o.status, o.deadline,
+        o.payment_status ?? null,
+        o.payment_status === 'paid' ? new Date().toISOString() : null,
+      ],
     );
     console.log(`  + [${o.status.padEnd(11)}] ${o.title} — EGP ${o.rate.toLocaleString()}`);
   }
 
   // Link portal user to Salma (first influencer)
-  const pu = db.prepare('SELECT id, influencer_id FROM portal_users WHERE email = ?').get(portalEmail as P) as { id: string; influencer_id: string | null } | undefined;
+  const pu = await db.get<{ id: string; influencer_id: string | null }>('SELECT id, influencer_id FROM portal_users WHERE email = ?', [portalEmail]);
   if (pu && !pu.influencer_id) {
-    db.prepare('UPDATE portal_users SET influencer_id = ? WHERE id = ?').run(influencers[0].id as P, pu.id as P);
+    await db.run('UPDATE portal_users SET influencer_id = ? WHERE id = ?', [influencers[0].id, pu.id]);
     console.log('\n  ✓ Portal user linked to Salma El-Masry');
   }
   // Link Salma's offers to the portal user
   if (pu) {
-    db.prepare("UPDATE portal_offers SET portal_user_id = ? WHERE influencer_id = ?").run(pu.id as P, influencers[0].id as P);
+    await db.run('UPDATE portal_offers SET portal_user_id = ? WHERE influencer_id = ?', [pu.id, influencers[0].id]);
   }
 
   /* ── A. Set sent_at on offers ────────────────────────────────────────────── */
-  db.prepare(`
-    UPDATE portal_offers SET sent_at = datetime('now', '-2 days')
-    WHERE status IN ('sent', 'accepted', 'in_progress', 'submitted', 'completed')
-      AND sent_at IS NULL
-  `).run();
+  await db.run(
+    `UPDATE portal_offers SET sent_at = NOW()
+     WHERE status IN ('sent', 'accepted', 'in_progress', 'submitted', 'completed')
+       AND sent_at IS NULL`,
+  );
   console.log('\n  ✓ Set sent_at on portal_offers');
-  const agencyUser = db.prepare("SELECT id FROM users WHERE email = 'agency@demo.falak.io'").get() as { id: string } | undefined;
+  const agencyUser = await db.get<{ id: string }>("SELECT id FROM users WHERE email = 'agency@demo.falak.io'");
 
   /* ── B. Commissions (revenue dashboard demo) ─────────────────────────────── */
   console.log('\n── Commissions ─────────────────────────────────────────────');
@@ -706,57 +708,45 @@ Content Format:
       offer_title: offers[4].title, influencer_id: influencers[4].id,
       agency_id: agencyUser?.id ?? null,
       gross_amount: 12000, commission_rate: 10, commission_amount: 1200, net_amount: 10800,
-      currency: 'EGP', status: 'COLLECTED', collected_at: "datetime('now')",
+      currency: 'EGP', status: 'COLLECTED', collected: true,
     },
     {
       id: uuidv4(), transaction_type: 'offer_commission', reference_id: offers[5].id,
       offer_title: offers[5].title, influencer_id: influencers[5].id,
       agency_id: agencyUser?.id ?? null,
       gross_amount: 3800, commission_rate: 10, commission_amount: 380, net_amount: 3420,
-      currency: 'EGP', status: 'COLLECTED', collected_at: "datetime('now')",
+      currency: 'EGP', status: 'COLLECTED', collected: true,
     },
     {
       id: uuidv4(), transaction_type: 'offer_commission', reference_id: offers[2].id,
       offer_title: offers[2].title, influencer_id: influencers[1].id,
       agency_id: agencyUser?.id ?? null,
       gross_amount: 55000, commission_rate: 10, commission_amount: 5500, net_amount: 49500,
-      currency: 'EGP', status: 'PENDING', collected_at: null,
+      currency: 'EGP', status: 'PENDING', collected: false,
     },
     {
       id: uuidv4(), transaction_type: 'offer_commission', reference_id: offers[1].id,
       offer_title: offers[1].title, influencer_id: influencers[0].id,
       agency_id: agencyUser?.id ?? null,
       gross_amount: 28000, commission_rate: 10, commission_amount: 2800, net_amount: 25200,
-      currency: 'EGP', status: 'PENDING', collected_at: null,
+      currency: 'EGP', status: 'PENDING', collected: false,
     },
   ];
   try {
     for (const c of commissions) {
-      if (c.collected_at) {
-        db.prepare(`
-          INSERT OR IGNORE INTO commissions
-            (id, transaction_type, reference_id, offer_title, influencer_id, agency_id,
-             gross_amount, commission_rate, commission_amount, net_amount, currency, status, collected_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        `).run(
-          c.id as P, c.transaction_type as P, c.reference_id as P, c.offer_title as P,
-          c.influencer_id as P, c.agency_id as P,
-          c.gross_amount as P, c.commission_rate as P, c.commission_amount as P,
-          c.net_amount as P, c.currency as P, c.status as P,
-        );
-      } else {
-        db.prepare(`
-          INSERT OR IGNORE INTO commissions
-            (id, transaction_type, reference_id, offer_title, influencer_id, agency_id,
-             gross_amount, commission_rate, commission_amount, net_amount, currency, status, collected_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-        `).run(
-          c.id as P, c.transaction_type as P, c.reference_id as P, c.offer_title as P,
-          c.influencer_id as P, c.agency_id as P,
-          c.gross_amount as P, c.commission_rate as P, c.commission_amount as P,
-          c.net_amount as P, c.currency as P, c.status as P,
-        );
-      }
+      await db.run(
+        `INSERT INTO commissions
+          (id, transaction_type, reference_id, offer_title, influencer_id, agency_id,
+           gross_amount, commission_rate, commission_amount, net_amount, currency, status, collected_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+        [
+          c.id, c.transaction_type, c.reference_id, c.offer_title,
+          c.influencer_id, c.agency_id,
+          c.gross_amount, c.commission_rate, c.commission_amount,
+          c.net_amount, c.currency, c.status,
+          c.collected ? new Date().toISOString() : null,
+        ],
+      );
       console.log(`  + [${c.status.padEnd(9)}] ${c.offer_title} — EGP ${c.commission_amount.toLocaleString()} commission`);
     }
   } catch (err) {
@@ -775,10 +765,11 @@ Content Format:
   ];
   for (const lp of loyaltyEntries) {
     try {
-      db.prepare(`
-        INSERT OR IGNORE INTO loyalty_points (id, user_type, user_id, action, points, reference_id, note)
-        VALUES (?, 'influencer', ?, ?, ?, ?, ?)
-      `).run(lp.id as P, portalId as P, lp.action as P, lp.points as P, lp.reference_id as P, lp.note as P);
+      await db.run(
+        `INSERT INTO loyalty_points (id, user_type, user_id, action, points, reference_id, note)
+         VALUES (?, 'influencer', ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+        [lp.id, portalId, lp.action, lp.points, lp.reference_id, lp.note],
+      );
       console.log(`  + ${lp.action} (+${lp.points} pts) — ${lp.note}`);
     } catch {
       console.log('  ⚠ loyalty_points table not ready yet, skipping');
@@ -803,10 +794,11 @@ Content Format:
   ];
   try {
     for (const msg of offerMessages) {
-      db.prepare(`
-        INSERT OR IGNORE INTO offer_messages (id, offer_id, sender_type, sender_id, body)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(msg.id as P, msg.offer_id as P, msg.sender_type as P, msg.sender_id as P, msg.body as P);
+      await db.run(
+        `INSERT INTO offer_messages (id, offer_id, sender_type, sender_id, body)
+         VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+        [msg.id, msg.offer_id, msg.sender_type, msg.sender_id, msg.body],
+      );
       console.log(`  + [${msg.sender_type.padEnd(10)}] ${msg.body.slice(0, 60)}…`);
     }
   } catch {
@@ -816,30 +808,32 @@ Content Format:
   /* ── E. Fan request (fulfilled with shareable delivery page) ──────────────── */
   console.log('\n── Fan Request (Fulfilled) ──────────────────────────────────');
   try {
-    const fanUser = db.prepare("SELECT id FROM fan_users WHERE email = 'fan@demo.falak.io'").get() as { id: string } | undefined;
+    const fanUser = await db.get<{ id: string }>("SELECT id FROM fan_users WHERE email = 'fan@demo.falak.io'");
     if (fanUser) {
       const fanReqId = uuidv4();
       const SHARE_TOKEN = 'demodemolivefandelivery2026xx';
-      db.prepare(`
-        INSERT OR IGNORE INTO fan_requests
+      await db.run(
+        `INSERT INTO fan_requests
           (id, fan_user_id, influencer_id, request_type, title, message, budget, currency,
            status, influencer_note, delivery_url, delivery_note, share_token, fan_email,
            submitted_at, responded_at, fulfilled_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                datetime('now', '-10 days'), datetime('now', '-9 days'), datetime('now', '-8 days'))
-      `).run(
-        fanReqId as P,
-        fanUser.id as P,
-        influencers[0].id as P,
-        'video_message' as P,
-        'Birthday video for my sister Nadia 🎂' as P,
-        "Hi Salma! My sister Nadia is your biggest fan and her birthday is this Friday. Could you record a short video wishing her happy birthday and mentioning she's been following you since 2022? Would mean the world to her!" as P,
-        1500 as P, 'EGP' as P, 'fulfilled' as P,
-        'What a sweet request! Happy to do this for Nadia 💛' as P,
-        'https://www.tiktok.com/@salma.elmasry' as P,
-        'Nadia — Happy Birthday from Cairo! 🎉 You\'ve been such a wonderful supporter and I hope this year brings you everything you\'ve been wishing for! Keep shining! — سلمى 💛' as P,
-        SHARE_TOKEN as P,
-        'fan@demo.falak.io' as P,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                 NOW() - INTERVAL '10 days', NOW() - INTERVAL '9 days', NOW() - INTERVAL '8 days')
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          fanReqId,
+          fanUser.id,
+          influencers[0].id,
+          'video_message',
+          'Birthday video for my sister Nadia 🎂',
+          "Hi Salma! My sister Nadia is your biggest fan and her birthday is this Friday. Could you record a short video wishing her happy birthday and mentioning she's been following you since 2022? Would mean the world to her!",
+          1500, 'EGP', 'fulfilled',
+          'What a sweet request! Happy to do this for Nadia 💛',
+          'https://www.tiktok.com/@salma.elmasry',
+          'Nadia — Happy Birthday from Cairo! 🎉 You\'ve been such a wonderful supporter and I hope this year brings you everything you\'ve been wishing for! Keep shining! — سلمى 💛',
+          SHARE_TOKEN,
+          'fan@demo.falak.io',
+        ],
       );
       console.log(`  + Fan request: Birthday video for Nadia (fulfilled)`);
       console.log(`  + Share token: ${SHARE_TOKEN}`);
@@ -863,10 +857,11 @@ Content Format:
       },
     ];
     for (const r of ratings) {
-      db.prepare(`
-        INSERT OR IGNORE INTO offer_ratings (id, offer_id, rater_type, rater_id, rating, review)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(r.id as P, r.offer_id as P, r.rater_type as P, r.rater_id as P, r.rating as P, r.review as P);
+      await db.run(
+        `INSERT INTO offer_ratings (id, offer_id, rater_type, rater_id, rating, review)
+         VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+        [r.id, r.offer_id, r.rater_type, r.rater_id, r.rating, r.review],
+      );
       console.log(`  + [${r.rating}★] ${r.offer_id === offers[4].id ? 'Yasmine Farouk' : 'Hassan Gamal'} — ${r.review.slice(0, 50)}…`);
     }
   } catch {
@@ -895,9 +890,12 @@ Content Format:
       currency: 'EGP', agency_notes: 'Provide story analytics screenshot 48h after posting.',
     },
   ];
-  const insertTpl = db.prepare(`INSERT OR IGNORE INTO offer_templates (id, name, platform, content_type, deliverables, brief, currency, agency_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const t of templates) {
-    insertTpl.run(t.id as P, t.name as P, t.platform as P, t.content_type as P, t.deliverables as P, t.brief as P, t.currency as P, t.agency_notes as P);
+    await db.run(
+      `INSERT INTO offer_templates (id, name, platform, content_type, deliverables, brief, currency, agency_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      [t.id, t.name, t.platform, t.content_type, t.deliverables, t.brief, t.currency, t.agency_notes],
+    );
     console.log(`  + ${t.name}`);
   }
 

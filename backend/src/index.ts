@@ -31,7 +31,9 @@ import intelligenceRouter from './routes/intelligence';
 import agentRouter from './routes/agent';
 import adnetworkRouter from './routes/adnetwork';
 import outreachRouter from './routes/outreach';
+import liveRouter from './routes/live';
 import { initSyncJobs } from './jobs/syncJobs';
+import { startKeepAlive } from './keepalive';
 
 dotenv.config();
 
@@ -107,6 +109,7 @@ app.use('/api/intelligence', intelligenceRouter);
 app.use('/api/agent', agentRouter);
 app.use('/api/adnetwork', adnetworkRouter);
 app.use('/api/outreach', outreachRouter);
+app.use('/api/live', liveRouter);
 
 // Health check (both paths for compatibility with Railway/Render/ELB)
 const healthHandler = (_req: express.Request, res: express.Response) => {
@@ -162,6 +165,7 @@ initSyncJobs();
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  startKeepAlive();
 });
 
 export default app;

@@ -1,47 +1,43 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 
 const router = Router();
 
 // GET /api/settings
-router.get('/', (_req: Request, res: Response) => {
-  const db = getDb();
-  const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
+router.get('/', async (_req: Request, res: Response) => {
+  const rows = await db.all('SELECT key, value FROM settings', []) as { key: string; value: string }[];
   const obj: Record<string, string> = {};
   rows.forEach(r => { obj[r.key] = r.value; });
   return res.json(obj);
 });
 
 // PUT /api/settings - update multiple settings at once
-router.put('/', (req: Request, res: Response) => {
-  const db = getDb();
+router.put('/', async (req: Request, res: Response) => {
   const updates = req.body as Record<string, string>;
 
-  const stmt = db.prepare(`
-    INSERT INTO settings (key, value, updated_at)
-    VALUES (?, ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
-  `);
-
-  db.exec('BEGIN');
+  await db.query('BEGIN');
   try {
     for (const [key, value] of Object.entries(updates)) {
-      stmt.run(key, String(value ?? ''));
+      await db.run(`
+        INSERT INTO settings (key, value, updated_at)
+        VALUES (?, ?, NOW())
+        ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+      `, [key, String(value ?? '')]);
     }
-    db.exec('COMMIT');
+    await db.query('COMMIT');
   } catch (e) {
-    db.exec('ROLLBACK');
+    await db.query('ROLLBACK');
     throw e;
   }
 
-  const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
+  const rows = await db.all('SELECT key, value FROM settings', []) as { key: string; value: string }[];
   const obj: Record<string, string> = {};
   rows.forEach(r => { obj[r.key] = r.value; });
   return res.json(obj);
 });
 
 // POST /api/settings/logo - upload logo
-router.post('/logo', (req: Request, res: Response) => {
+router.post('/logo', async (req: Request, res: Response) => {
   if (!req.files || !req.files.logo) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
@@ -55,25 +51,24 @@ router.post('/logo', (req: Request, res: Response) => {
   const filename = `logo-${Date.now()}.${ext}`;
   const uploadPath = `uploads/${filename}`;
 
-  file.mv(uploadPath, (err: Error) => {
+  file.mv(uploadPath, async (err: Error) => {
     if (err) return res.status(500).json({ error: err.message });
 
-    const db = getDb();
-    db.prepare(`
+    await db.run(`
       INSERT INTO settings (key, value) VALUES ('logo_url', ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run(`/uploads/${filename}`);
+      ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
+    `, [`/uploads/${filename}`]);
 
     return res.json({ logo_url: `/uploads/${filename}` });
   });
 });
 
 // GET /api/settings/export - export all influencers as Excel
-router.get('/export', (_req: Request, res: Response) => {
-  const db = getDb();
+router.get('/export', async (_req: Request, res: Response) => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const XLSX = require('xlsx');
 
-  const influencers = db.prepare('SELECT * FROM influencers WHERE is_archived = 0 ORDER BY created_at DESC').all();
+  const influencers = await db.all('SELECT * FROM influencers WHERE is_archived = 0 ORDER BY created_at DESC', []);
 
   const ws = XLSX.utils.json_to_sheet(influencers);
   const wb = XLSX.utils.book_new();

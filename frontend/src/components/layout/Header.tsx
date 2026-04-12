@@ -53,6 +53,7 @@ function UserMenu() {
     influencer:     'Influencer',
     public:         'Fan',
     talent_manager: 'Talent Manager',
+    viewer:         'Viewer',
   };
 
   return (
@@ -124,6 +125,11 @@ export default function Header({ onMenuClick }: { onMenuClick: () => void }) {
           <span>Search</span>
           <kbd className="text-[10px] bg-surface-overlay px-1.5 py-0.5 rounded border border-surface-border">⌘K</kbd>
         </button>
+        {user?.role === 'viewer' && (
+          <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-semibold uppercase tracking-widest bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            View only
+          </span>
+        )}
         {user && <NotificationBell />}
         {user ? <UserMenu /> : null}
       </div>

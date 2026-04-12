@@ -4,8 +4,9 @@
  * Custom audiences are built from campaign influencer followers for retargeting.
  */
 import { Router } from 'express';
+import { createHash } from 'crypto';
 import { requireAuth } from '../middleware/auth';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 
 const router = Router();
 
@@ -21,29 +22,35 @@ router.get('/status', requireAuth(), (_req, res) => {
 // ── Custom Audiences ─────────────────────────────────────────────────────────
 
 /** GET /api/adnetwork/audiences — list custom audiences */
-router.get('/audiences', requireAuth('platform_admin', 'agency', 'brand'), (req, res) => {
-  const db = getDb();
+router.get('/audiences', requireAuth('platform_admin', 'agency', 'brand'), async (req, res) => {
   const { campaign_id, platform } = req.query;
 
   const conditions: string[] = [];
-  if (campaign_id) conditions.push(`campaign_id = '${campaign_id}'`);
-  if (platform)   conditions.push(`platform = '${platform}'`);
+  const params: unknown[] = [];
+
+  if (campaign_id) {
+    params.push(campaign_id);
+    conditions.push(`campaign_id = ?`);
+  }
+  if (platform) {
+    params.push(platform);
+    conditions.push(`platform = ?`);
+  }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const rows = db.prepare(`
+  const rows = await db.all(`
     SELECT ca.*,
       (SELECT COUNT(*) FROM audience_members am WHERE am.custom_audience_id = ca.id) as member_count
     FROM custom_audiences ca
     ${where}
     ORDER BY ca.created_at DESC
-  `).all() as Record<string, unknown>[];
+  `, params);
 
   res.json(rows);
 });
 
 /** POST /api/adnetwork/audiences — create a custom audience */
-router.post('/audiences', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.post('/audiences', requireAuth('platform_admin', 'agency'), async (req, res) => {
   const { campaign_id, agency_id, brand_id, audience_name, platform } = req.body;
 
   if (!audience_name || !platform) {
@@ -51,60 +58,54 @@ router.post('/audiences', requireAuth('platform_admin', 'agency'), (req, res) =>
   }
 
   const id = crypto.randomUUID();
-  db.prepare(`
+  await db.run(`
     INSERT INTO custom_audiences (id, campaign_id, agency_id, brand_id, audience_name, platform, status)
     VALUES (?, ?, ?, ?, ?, ?, 'building')
-  `).run(id, campaign_id || null, agency_id || null, brand_id || null, audience_name, platform);
+  `, [id, campaign_id || null, agency_id || null, brand_id || null, audience_name, platform]);
 
-  res.status(201).json(db.prepare('SELECT * FROM custom_audiences WHERE id = ?').get(id));
+  const row = await db.get('SELECT * FROM custom_audiences WHERE id = ?', [id]);
+  res.status(201).json(row);
 });
 
 /** POST /api/adnetwork/audiences/:id/build — auto-populate from campaign influencers */
-router.post('/audiences/:id/build', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.post('/audiences/:id/build', requireAuth('platform_admin', 'agency'), async (req, res) => {
   const { id } = req.params;
 
-  const audience = db.prepare('SELECT * FROM custom_audiences WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  const audience = await db.get('SELECT * FROM custom_audiences WHERE id = ?', [id]);
   if (!audience) return res.status(404).json({ error: 'Audience not found' });
   if (!audience.campaign_id) return res.status(400).json({ error: 'Audience has no linked campaign' });
 
   // Collect emails from influencers in the campaign
-  const influencers = db.prepare(`
+  const influencers = await db.all(`
     SELECT i.email, i.ig_handle, i.tiktok_handle
     FROM campaign_influencers ci
     JOIN influencers i ON i.id = ci.influencer_id
     WHERE ci.campaign_id = ? AND i.email IS NOT NULL
-  `).all(audience.campaign_id as string) as Array<{ email: string; ig_handle: string; tiktok_handle: string }>;
+  `, [audience.campaign_id]) as Array<{ email: string; ig_handle: string; tiktok_handle: string }>;
 
   if (influencers.length === 0) {
     return res.status(400).json({ error: 'No influencers with email found in campaign' });
   }
 
-  // Hash emails (SHA-256 hex) and insert as audience members
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const nodeCrypto = require('crypto') as { createHash: (alg: string) => { update: (s: string) => { digest: (enc: string) => string } } };
-  const insertStmt = db.prepare(`
-    INSERT OR IGNORE INTO audience_members (id, custom_audience_id, identifier_type, identifier_value, source)
-    VALUES (?, ?, 'hashed_email', ?, 'campaign_influencer')
-  `);
-
   let added = 0;
   for (const inf of influencers) {
-    const hashed = nodeCrypto.createHash('sha256').update(inf.email.toLowerCase().trim()).digest('hex');
-    insertStmt.run(crypto.randomUUID(), id, hashed);
+    const hashed = createHash('sha256').update(inf.email.toLowerCase().trim()).digest('hex');
+    await db.run(`
+      INSERT INTO audience_members (id, custom_audience_id, identifier_type, identifier_value, source)
+      VALUES (?, ?, 'hashed_email', ?, 'campaign_influencer')
+      ON CONFLICT DO NOTHING
+    `, [crypto.randomUUID(), id, hashed]);
     added++;
   }
 
   // Update audience size + mark ready
-  db.prepare(`UPDATE custom_audiences SET audience_size = ?, status = 'ready', synced_at = datetime('now') WHERE id = ?`)
-    .run(added, id);
+  await db.run(`UPDATE custom_audiences SET audience_size = ?, status = 'ready', synced_at = NOW() WHERE id = ?`, [added, id]);
 
   res.json({ ok: true, members_added: added, audience_id: id });
 });
 
 /** PUT /api/adnetwork/audiences/:id — update audience */
-router.put('/audiences/:id', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.put('/audiences/:id', requireAuth('platform_admin', 'agency'), async (req, res) => {
   const { status, match_rate, external_audience_id } = req.body;
   const fields: Record<string, unknown> = {};
   if (status !== undefined) fields.status = status;
@@ -114,46 +115,51 @@ router.put('/audiences/:id', requireAuth('platform_admin', 'agency'), (req, res)
   if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nothing to update' });
 
   const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ');
-  db.prepare(`UPDATE custom_audiences SET ${sets} WHERE id = ?`).run(...(Object.values(fields) as string[]), req.params.id);
-  res.json(db.prepare('SELECT * FROM custom_audiences WHERE id = ?').get(req.params.id));
+  const vals = [...Object.values(fields), req.params.id];
+  await db.run(`UPDATE custom_audiences SET ${sets} WHERE id = ?`, vals);
+
+  const row = await db.get('SELECT * FROM custom_audiences WHERE id = ?', [req.params.id]);
+  res.json(row);
 });
 
 /** DELETE /api/adnetwork/audiences/:id */
-router.delete('/audiences/:id', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM audience_members WHERE custom_audience_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM custom_audiences WHERE id = ?').run(req.params.id);
+router.delete('/audiences/:id', requireAuth('platform_admin', 'agency'), async (req, res) => {
+  await db.run('DELETE FROM audience_members WHERE custom_audience_id = ?', [req.params.id]);
+  await db.run('DELETE FROM custom_audiences WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 });
 
 // ── Fraud Alerts ─────────────────────────────────────────────────────────────
 
 /** GET /api/adnetwork/fraud-alerts — list fraud alerts */
-router.get('/fraud-alerts', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.get('/fraud-alerts', requireAuth('platform_admin', 'agency'), async (req, res) => {
   const { reviewed, severity } = req.query;
 
   const conditions: string[] = [];
+  const params: unknown[] = [];
+
   if (reviewed === 'false') conditions.push('fa.reviewed_at IS NULL');
   if (reviewed === 'true')  conditions.push('fa.reviewed_at IS NOT NULL');
-  if (severity) conditions.push(`fa.severity = '${severity}'`);
+  if (severity) {
+    params.push(severity);
+    conditions.push(`fa.severity = ?`);
+  }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const rows = db.prepare(`
+  const rows = await db.all(`
     SELECT fa.*, i.name_english, i.name_arabic, i.ig_handle
     FROM fraud_alerts fa
     LEFT JOIN influencers i ON i.id = fa.influencer_id
     ${where}
     ORDER BY fa.created_at DESC
     LIMIT 200
-  `).all() as Record<string, unknown>[];
+  `, params);
 
   res.json(rows);
 });
 
 /** POST /api/adnetwork/fraud-alerts — create a fraud alert */
-router.post('/fraud-alerts', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.post('/fraud-alerts', requireAuth('platform_admin', 'agency'), async (req, res) => {
   const { influencer_id, alert_type, severity = 'medium', details } = req.body;
 
   if (!influencer_id || !alert_type) {
@@ -161,33 +167,33 @@ router.post('/fraud-alerts', requireAuth('platform_admin', 'agency'), (req, res)
   }
 
   const id = crypto.randomUUID();
-  db.prepare('INSERT INTO fraud_alerts (id, influencer_id, alert_type, severity, details) VALUES (?, ?, ?, ?, ?)')
-    .run(id, influencer_id, alert_type, severity, details || null);
+  await db.run('INSERT INTO fraud_alerts (id, influencer_id, alert_type, severity, details) VALUES (?, ?, ?, ?, ?)',
+    [id, influencer_id, alert_type, severity, details || null]);
 
-  res.status(201).json(db.prepare('SELECT * FROM fraud_alerts WHERE id = ?').get(id));
+  const row = await db.get('SELECT * FROM fraud_alerts WHERE id = ?', [id]);
+  res.status(201).json(row);
 });
 
 /** PUT /api/adnetwork/fraud-alerts/:id — review/dismiss */
-router.put('/fraud-alerts/:id', requireAuth('platform_admin'), (req, res) => {
-  const db = getDb();
+router.put('/fraud-alerts/:id', requireAuth('platform_admin'), async (req, res) => {
   const { action_taken } = req.body;
 
-  db.prepare(`UPDATE fraud_alerts SET reviewed_at = datetime('now'), action_taken = ? WHERE id = ?`)
-    .run(action_taken || 'dismissed', req.params.id);
+  await db.run(`UPDATE fraud_alerts SET reviewed_at = NOW(), action_taken = ? WHERE id = ?`,
+    [action_taken || 'dismissed', req.params.id]);
 
-  res.json(db.prepare('SELECT * FROM fraud_alerts WHERE id = ?').get(req.params.id));
+  const row = await db.get('SELECT * FROM fraud_alerts WHERE id = ?', [req.params.id]);
+  res.json(row);
 });
 
 /** POST /api/adnetwork/fraud-check/:influencerId — auto-detect potential fraud */
-router.post('/fraud-check/:influencerId', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.post('/fraud-check/:influencerId', requireAuth('platform_admin', 'agency'), async (req, res) => {
   const { influencerId } = req.params;
 
-  const inf = db.prepare(`
+  const inf = await db.get(`
     SELECT id, ig_followers, ig_engagement_rate,
            tiktok_followers, tiktok_engagement_rate
     FROM influencers WHERE id = ?
-  `).get(influencerId) as Record<string, unknown> | undefined;
+  `, [influencerId]) as Record<string, unknown> | undefined;
 
   if (!inf) return res.status(404).json({ error: 'Influencer not found' });
 
@@ -206,7 +212,7 @@ router.post('/fraud-check/:influencerId', requireAuth('platform_admin', 'agency'
   }
 
   // Rule 3: Check audience quality data
-  const quality = db.prepare('SELECT bot_score, suspicious_followers_pct FROM audience_quality WHERE influencer_id = ? ORDER BY updated_at DESC LIMIT 1').get(influencerId) as { bot_score: number; suspicious_followers_pct: number } | undefined;
+  const quality = await db.get('SELECT bot_score, suspicious_followers_pct FROM audience_quality WHERE influencer_id = ? ORDER BY updated_at DESC LIMIT 1', [influencerId]) as { bot_score: number; suspicious_followers_pct: number } | undefined;
   if (quality) {
     if (quality.bot_score > 30) {
       alerts.push({ alert_type: 'high_bot_score', severity: 'high', details: `Bot score ${quality.bot_score}% (threshold: 30%).` });
@@ -221,9 +227,9 @@ router.post('/fraud-check/:influencerId', requireAuth('platform_admin', 'agency'
   }
 
   // Insert detected alerts
-  const insertStmt = db.prepare('INSERT INTO fraud_alerts (id, influencer_id, alert_type, severity, details) VALUES (?, ?, ?, ?, ?)');
   for (const a of alerts) {
-    insertStmt.run(crypto.randomUUID(), influencerId, a.alert_type, a.severity, a.details);
+    await db.run('INSERT INTO fraud_alerts (id, influencer_id, alert_type, severity, details) VALUES (?, ?, ?, ?, ?)',
+      [crypto.randomUUID(), influencerId, a.alert_type, a.severity, a.details]);
   }
 
   res.json({ ok: true, alerts_created: alerts.length, alerts });

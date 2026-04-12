@@ -10,28 +10,24 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 import { createNotification } from './notifications';
-import { sendFanRequestFulfilledEmail, sendDeliverableSubmittedEmail, sendDeliverableReviewedEmail } from '../services/emailService';
+import { sendFanRequestFulfilledEmail, sendDeliverableSubmittedEmail } from '../services/emailService';
 import fetch from 'node-fetch';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'cp-portal-secret-change-in-prod';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
-
 /* ── Auth middleware ──────────────────────────────────────── */
 interface AuthRequest extends Request { portalUser?: Record<string, unknown>; }
 
-function requirePortalAuth(req: AuthRequest, res: Response, next: NextFunction) {
+async function requirePortalAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  if (!token) { res.status(401).json({ error: 'Unauthorized' }); return; }
   try {
     const payload = jwt.verify(token, JWT_SECRET) as Record<string, unknown>;
-    const db = getDb();
-    const user = db.prepare('SELECT * FROM portal_users WHERE id = ? AND status = ?').get(payload.id as P, 'active') as Record<string, unknown> | undefined;
-    if (!user) return res.status(401).json({ error: 'User not found or suspended' });
+    const user = await db.get('SELECT * FROM portal_users WHERE id = ? AND status = ?', [payload.id, 'active']) as Record<string, unknown> | undefined;
+    if (!user) { res.status(401).json({ error: 'User not found or suspended' }); return; }
     req.portalUser = user;
     next();
   } catch {
@@ -45,8 +41,7 @@ router.post('/auth/register', async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
 
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM portal_users WHERE email = ?').get(email);
+  const existing = await db.get('SELECT id FROM portal_users WHERE email = ?', [email]);
   if (existing) return res.status(409).json({ error: 'Email already registered' });
 
   const hash = await bcrypt.hash(String(password), 10);
@@ -56,19 +51,15 @@ router.post('/auth/register', async (req, res) => {
   let influencer_id: string | null = null;
 
   if (invite_token) {
-    // Invite token takes highest priority — links directly to the invited influencer
-    const invited = db.prepare('SELECT id FROM influencers WHERE invite_token = ? AND is_archived = 0')
-      .get(invite_token as P) as { id: string } | undefined;
+    const invited = await db.get('SELECT id FROM influencers WHERE invite_token = ? AND is_archived = 0', [invite_token]) as { id: string } | undefined;
     if (invited) {
       influencer_id = invited.id;
-      // Consume the token so it can't be reused
-      db.prepare(`UPDATE influencers SET invite_token = NULL WHERE id = ?`).run(invited.id);
+      await db.run(`UPDATE influencers SET invite_token = NULL WHERE id = ?`, [invited.id]);
     }
   }
 
   if (!influencer_id && handle) {
-    const inf = db.prepare(`SELECT id FROM influencers WHERE ig_handle = ? OR tiktok_handle = ? AND is_archived = 0`)
-      .get(handle, handle) as { id: string } | undefined;
+    const inf = await db.get(`SELECT id FROM influencers WHERE ig_handle = ? OR tiktok_handle = ? AND is_archived = 0`, [handle, handle]) as { id: string } | undefined;
     influencer_id = inf?.id || null;
   }
 
@@ -76,19 +67,19 @@ router.post('/auth/register', async (req, res) => {
   if (!influencer_id) {
     influencer_id = uuidv4();
     const ig_handle = handle && handle.startsWith('@') ? handle : null;
-    db.prepare(`
+    await db.run(`
       INSERT INTO influencers (id, name_english, ig_handle, phone_number, email, supplier_source, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-    `).run(influencer_id as P, name || null, ig_handle, phone || null, email, 'portal');
+      VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+    `, [influencer_id, name || null, ig_handle, phone || null, email, 'portal']);
   }
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO portal_users (id, email, password_hash, name, handle, phone, platforms, influencer_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, email, hash, name || null, handle || null, phone || null, platforms ? JSON.stringify(platforms) : null, influencer_id);
+  `, [id, email, hash, name || null, handle || null, phone || null, platforms ? JSON.stringify(platforms) : null, influencer_id]);
 
   const token = jwt.sign({ id }, JWT_SECRET, { expiresIn: '30d' });
-  const user = db.prepare('SELECT id, email, name, handle, phone, platforms, profile_pic, influencer_id, created_at FROM portal_users WHERE id = ?').get(id);
+  const user = await db.get('SELECT id, email, name, handle, phone, platforms, profile_pic, influencer_id, created_at FROM portal_users WHERE id = ?', [id]);
   res.json({ token, user, influencer_id });
 });
 
@@ -97,15 +88,14 @@ router.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
-  const db = getDb();
-  const user = db.prepare('SELECT * FROM portal_users WHERE email = ?').get(email) as Record<string, unknown> | undefined;
+  const user = await db.get('SELECT * FROM portal_users WHERE email = ?', [email]) as Record<string, unknown> | undefined;
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
   if (user.status === 'suspended') return res.status(403).json({ error: 'Account suspended' });
 
   const valid = await bcrypt.compare(String(password), String(user.password_hash));
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
-  db.prepare(`UPDATE portal_users SET last_login_at = datetime('now') WHERE id = ?`).run(user.id as P);
+  await db.run(`UPDATE portal_users SET last_login_at = NOW() WHERE id = ?`, [user.id]);
 
   const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '30d' });
   const { password_hash, ...safeUser } = user;
@@ -113,11 +103,11 @@ router.post('/auth/login', async (req, res) => {
 });
 
 /* ── Invite token lookup (no auth) ───────────────────────── */
-router.get('/invite/:token', (req, res) => {
-  const db = getDb();
-  const inf = db.prepare(
-    `SELECT id, name_english, name_arabic, email, ig_handle, tiktok_handle FROM influencers WHERE invite_token = ? AND is_archived = 0`
-  ).get(req.params.token) as Record<string, unknown> | undefined;
+router.get('/invite/:token', async (req, res) => {
+  const inf = await db.get(
+    `SELECT id, name_english, name_arabic, email, ig_handle, tiktok_handle FROM influencers WHERE invite_token = ? AND is_archived = 0`,
+    [req.params.token]
+  ) as Record<string, unknown> | undefined;
   if (!inf) return res.status(404).json({ error: 'Invite link is invalid or already used' });
   res.json({
     valid: true,
@@ -245,7 +235,6 @@ router.get('/auth/oauth/callback/:provider', async (req, res) => {
     });
     const me = await meRes.json() as Record<string, unknown>;
 
-    // For Facebook the picture is nested; for Google it's a flat url
     const oauth_id = String(me.id || me.sub || '');
     const oauth_name = String(me.name || '');
     const oauth_email = String(me.email || '');
@@ -257,16 +246,14 @@ router.get('/auth/oauth/callback/:provider', async (req, res) => {
 
     if (!oauth_id) throw new Error('No user ID received from provider');
 
-    const db = getDb();
-
     // 1) Try to find existing portal user with this OAuth identity
-    let portalUser = db.prepare(
-      `SELECT * FROM portal_users WHERE oauth_provider = ? AND oauth_id = ?`
-    ).get(provider, oauth_id) as Record<string, unknown> | undefined;
+    let portalUser = await db.get(
+      `SELECT * FROM portal_users WHERE oauth_provider = ? AND oauth_id = ?`,
+      [provider, oauth_id]
+    ) as Record<string, unknown> | undefined;
 
     if (portalUser) {
-      // Existing user — issue JWT and redirect
-      db.prepare(`UPDATE portal_users SET last_login_at = datetime('now') WHERE id = ?`).run(portalUser.id as P);
+      await db.run(`UPDATE portal_users SET last_login_at = NOW() WHERE id = ?`, [portalUser.id]);
       const token = jwt.sign({ id: portalUser.id }, JWT_SECRET, { expiresIn: '30d' });
       return res.redirect(`${FRONTEND_URL}/portal/login?oauth_token=${token}&oauth_name=${encodeURIComponent(oauth_name)}`);
     }
@@ -274,44 +261,45 @@ router.get('/auth/oauth/callback/:provider', async (req, res) => {
     // 2) New user — resolve influencer_id via invite_token
     let influencer_id: string | null = null;
     if (stateData.invite_token) {
-      const invited = db.prepare(
-        `SELECT id FROM influencers WHERE invite_token = ? AND is_archived = 0`
-      ).get(stateData.invite_token as P) as { id: string } | undefined;
+      const invited = await db.get(
+        `SELECT id FROM influencers WHERE invite_token = ? AND is_archived = 0`,
+        [stateData.invite_token]
+      ) as { id: string } | undefined;
       if (invited) {
         influencer_id = invited.id;
-        db.prepare(`UPDATE influencers SET invite_token = NULL WHERE id = ?`).run(invited.id);
+        await db.run(`UPDATE influencers SET invite_token = NULL WHERE id = ?`, [invited.id]);
       }
     }
 
     // 3) If no invite, try to match by email
     if (!influencer_id && oauth_email) {
-      const byEmail = db.prepare(
-        `SELECT id FROM influencers WHERE email = ? AND is_archived = 0`
-      ).get(oauth_email) as { id: string } | undefined;
+      const byEmail = await db.get(
+        `SELECT id FROM influencers WHERE email = ? AND is_archived = 0`,
+        [oauth_email]
+      ) as { id: string } | undefined;
       influencer_id = byEmail?.id || null;
     }
 
     // 4) No influencer match → create one
     if (!influencer_id) {
       influencer_id = uuidv4();
-      db.prepare(`
+      await db.run(`
         INSERT INTO influencers (id, name_english, email, supplier_source, created_at, updated_at)
-        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
-      `).run(influencer_id as P, oauth_name || null, oauth_email || null, 'portal_oauth');
+        VALUES (?, ?, ?, ?, NOW(), NOW())
+      `, [influencer_id, oauth_name || null, oauth_email || null, 'portal_oauth']);
     }
 
     // 5) Check if email already registered (password account) — link OAuth
     const emailUser = oauth_email
-      ? db.prepare(`SELECT * FROM portal_users WHERE email = ?`).get(oauth_email) as Record<string, unknown> | undefined
+      ? await db.get(`SELECT * FROM portal_users WHERE email = ?`, [oauth_email]) as Record<string, unknown> | undefined
       : undefined;
 
     if (emailUser) {
-      // Link OAuth to existing account
-      db.prepare(`
+      await db.run(`
         UPDATE portal_users SET oauth_provider = ?, oauth_id = ?, oauth_name = ?, oauth_picture = ?
         WHERE id = ?
-      `).run(provider, oauth_id, oauth_name, oauth_picture, emailUser.id as P);
-      db.prepare(`UPDATE portal_users SET last_login_at = datetime('now') WHERE id = ?`).run(emailUser.id as P);
+      `, [provider, oauth_id, oauth_name, oauth_picture, emailUser.id]);
+      await db.run(`UPDATE portal_users SET last_login_at = NOW() WHERE id = ?`, [emailUser.id]);
       const token = jwt.sign({ id: emailUser.id }, JWT_SECRET, { expiresIn: '30d' });
       return res.redirect(`${FRONTEND_URL}/portal/login?oauth_token=${token}&oauth_name=${encodeURIComponent(oauth_name)}`);
     }
@@ -319,10 +307,10 @@ router.get('/auth/oauth/callback/:provider', async (req, res) => {
     // 6) Create new portal user (OAuth-only, empty password hash placeholder)
     const newId = uuidv4();
     const emailForAccount = oauth_email || `${oauth_id}@${provider}.oauth`;
-    db.prepare(`
+    await db.run(`
       INSERT INTO portal_users (id, email, password_hash, name, profile_pic, oauth_provider, oauth_id, oauth_name, oauth_picture, influencer_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(newId, emailForAccount, '', oauth_name || null, oauth_picture || null, provider, oauth_id, oauth_name, oauth_picture, influencer_id);
+    `, [newId, emailForAccount, '', oauth_name || null, oauth_picture || null, provider, oauth_id, oauth_name, oauth_picture, influencer_id]);
 
     const token = jwt.sign({ id: newId }, JWT_SECRET, { expiresIn: '30d' });
     return res.redirect(`${FRONTEND_URL}/portal/login?oauth_token=${token}&oauth_name=${encodeURIComponent(oauth_name)}&new_user=1`);
@@ -334,19 +322,18 @@ router.get('/auth/oauth/callback/:provider', async (req, res) => {
 });
 
 /* ── Profile ──────────────────────────────────────────────── */
-router.get('/profile', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
+router.get('/profile', requirePortalAuth, async (req: AuthRequest, res) => {
   let user = req.portalUser!;
 
   // Auto-create influencer record for legacy portal accounts that don't have one
   if (!user.influencer_id) {
     const influencer_id = uuidv4();
     const ig_handle = user.handle && String(user.handle).startsWith('@') ? String(user.handle) : null;
-    db.prepare(`
+    await db.run(`
       INSERT INTO influencers (id, name_english, ig_handle, phone_number, email, supplier_source, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-    `).run(influencer_id as P, (user.name || null) as P, ig_handle as P, (user.phone || null) as P, (user.email || null) as P, 'portal');
-    db.prepare(`UPDATE portal_users SET influencer_id = ? WHERE id = ?`).run(influencer_id as P, user.id as P);
+      VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+    `, [influencer_id, user.name || null, ig_handle, user.phone || null, user.email || null, 'portal']);
+    await db.run(`UPDATE portal_users SET influencer_id = ? WHERE id = ?`, [influencer_id, user.id]);
     user = { ...user, influencer_id };
   }
 
@@ -356,7 +343,6 @@ router.get('/profile', requirePortalAuth, (req: AuthRequest, res) => {
 
 router.put('/profile', requirePortalAuth, async (req: AuthRequest, res) => {
   const { name, handle, phone, bio, platforms } = req.body;
-  const db = getDb();
   const updates: Record<string, unknown> = {};
   if (name !== undefined)      updates.name = name;
   if (handle !== undefined)    updates.handle = handle;
@@ -368,16 +354,15 @@ router.put('/profile', requirePortalAuth, async (req: AuthRequest, res) => {
 
   const fields = Object.keys(updates).map(k => `${k} = ?`).join(', ');
   const vals   = Object.values(updates);
-  db.prepare(`UPDATE portal_users SET ${fields} WHERE id = ?`).run(...vals as P[], req.portalUser!.id as P);
-  const updated = db.prepare('SELECT * FROM portal_users WHERE id = ?').get(req.portalUser!.id as P) as Record<string, unknown>;
+  await db.run(`UPDATE portal_users SET ${fields} WHERE id = ?`, [...vals, req.portalUser!.id]);
+  const updated = await db.get('SELECT * FROM portal_users WHERE id = ?', [req.portalUser!.id]) as Record<string, unknown>;
   const { password_hash, ...safe } = updated;
   res.json(safe);
 });
 
 /* ── Influencer record update (portal-scoped) ─────────────── */
-router.put('/influencers/:id', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
-  const linkedInfluencerId = req.portalUser!.influencer_id as P | null;
+router.put('/influencers/:id', requirePortalAuth, async (req: AuthRequest, res) => {
+  const linkedInfluencerId = req.portalUser!.influencer_id as string | null;
 
   // Only allow updating the influencer record that belongs to this portal user
   if (!linkedInfluencerId || linkedInfluencerId !== req.params.id) {
@@ -398,53 +383,50 @@ router.put('/influencers/:id', requirePortalAuth, (req: AuthRequest, res) => {
   }
 
   if (Object.keys(updates).length === 0) {
-    const inf = db.prepare('SELECT * FROM influencers WHERE id = ?').get(linkedInfluencerId as P);
+    const inf = await db.get('SELECT * FROM influencers WHERE id = ?', [linkedInfluencerId]);
     return res.json(inf);
   }
 
   const fields = Object.keys(updates).map(k => `${k} = ?`).join(', ');
   const vals   = Object.values(updates);
-  db.prepare(`UPDATE influencers SET ${fields}, updated_at = datetime('now') WHERE id = ?`)
-    .run(...vals as P[], linkedInfluencerId as P);
+  await db.run(`UPDATE influencers SET ${fields}, updated_at = NOW() WHERE id = ?`, [...vals, linkedInfluencerId]);
 
-  const inf = db.prepare('SELECT * FROM influencers WHERE id = ?').get(linkedInfluencerId as P);
+  const inf = await db.get('SELECT * FROM influencers WHERE id = ?', [linkedInfluencerId]);
   res.json(inf);
 });
 
 /* ── Offers ───────────────────────────────────────────────── */
-router.get('/offers', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
-  const linkedInfluencerId = req.portalUser!.influencer_id as P | null;
+router.get('/offers', requirePortalAuth, async (req: AuthRequest, res) => {
+  const userId = req.portalUser!.id as string;
+  const linkedInfluencerId = req.portalUser!.influencer_id as string | null;
 
   // Match offers assigned to this portal account OR linked by influencer_id
-  const offers = db.prepare(`
+  const offers = await db.all(`
     SELECT o.*, c.name AS campaign_name
     FROM portal_offers o
     LEFT JOIN campaigns c ON o.campaign_id = c.id
     WHERE o.portal_user_id = ?
       OR (o.influencer_id = ? AND o.portal_user_id IS NULL AND ? IS NOT NULL)
     ORDER BY o.created_at DESC
-  `).all(userId, linkedInfluencerId, linkedInfluencerId) as Record<string, unknown>[];
+  `, [userId, linkedInfluencerId, linkedInfluencerId]) as Record<string, unknown>[];
 
   // Auto-link unlinked offers to this portal user if they match influencer_id
   if (linkedInfluencerId) {
-    db.prepare(`
+    await db.run(`
       UPDATE portal_offers
-      SET portal_user_id = ?, updated_at = datetime('now')
+      SET portal_user_id = ?, updated_at = NOW()
       WHERE influencer_id = ? AND portal_user_id IS NULL
-    `).run(userId, linkedInfluencerId);
+    `, [userId, linkedInfluencerId]);
   }
 
   res.json(offers);
 });
 
-router.get('/offers/:id', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
-  const linkedInfluencerId = req.portalUser!.influencer_id as P | null;
+router.get('/offers/:id', requirePortalAuth, async (req: AuthRequest, res) => {
+  const userId = req.portalUser!.id as string;
+  const linkedInfluencerId = req.portalUser!.influencer_id as string | null;
 
-  const offer = db.prepare(`
+  const offer = await db.get(`
     SELECT o.*, c.name AS campaign_name, c.client_name
     FROM portal_offers o
     LEFT JOIN campaigns c ON o.campaign_id = c.id
@@ -452,80 +434,77 @@ router.get('/offers/:id', requirePortalAuth, (req: AuthRequest, res) => {
       o.portal_user_id = ?
       OR (o.influencer_id = ? AND ? IS NOT NULL)
     )
-  `).get(req.params.id, userId, linkedInfluencerId, linkedInfluencerId) as Record<string, unknown> | undefined;
+  `, [req.params.id, userId, linkedInfluencerId, linkedInfluencerId]) as Record<string, unknown> | undefined;
 
   if (!offer) return res.status(404).json({ error: 'Offer not found' });
 
   // Auto-link if not yet assigned
   if (!offer.portal_user_id && linkedInfluencerId) {
-    db.prepare(`UPDATE portal_offers SET portal_user_id = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(userId, offer.id as P);
+    await db.run(`UPDATE portal_offers SET portal_user_id = ?, updated_at = NOW() WHERE id = ?`, [userId, offer.id]);
   }
 
-  const deliverables = db.prepare('SELECT * FROM portal_deliverables WHERE offer_id = ? ORDER BY submitted_at DESC').all(offer.id as P) as Record<string, unknown>[];
+  const deliverables = await db.all('SELECT * FROM portal_deliverables WHERE offer_id = ? ORDER BY submitted_at DESC', [offer.id]) as Record<string, unknown>[];
   res.json({ ...offer, deliverables });
 });
 
 /* ── Respond to offer ─────────────────────────────────────── */
-router.put('/offers/:id/respond', requirePortalAuth, (req: AuthRequest, res) => {
+router.put('/offers/:id/respond', requirePortalAuth, async (req: AuthRequest, res) => {
   const { decision, influencer_notes } = req.body; // decision: 'accepted' | 'declined'
   if (!['accepted', 'declined'].includes(decision)) return res.status(400).json({ error: "decision must be 'accepted' or 'declined'" });
 
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
-  const linkedInfluencerId = req.portalUser!.influencer_id as P | null;
+  const userId = req.portalUser!.id as string;
+  const linkedInfluencerId = req.portalUser!.influencer_id as string | null;
 
-  const offer = db.prepare(`
+  const offer = await db.get(`
     SELECT * FROM portal_offers WHERE id = ? AND (
       portal_user_id = ? OR (influencer_id = ? AND ? IS NOT NULL)
     )
-  `).get(req.params.id, userId, linkedInfluencerId, linkedInfluencerId) as Record<string, unknown> | undefined;
+  `, [req.params.id, userId, linkedInfluencerId, linkedInfluencerId]) as Record<string, unknown> | undefined;
 
   if (!offer) return res.status(404).json({ error: 'Offer not found' });
   if (!['pending', 'sent'].includes(String(offer.status))) {
     return res.status(409).json({ error: `Cannot respond to offer in status: ${offer.status}` });
   }
 
-  db.prepare(`
+  await db.run(`
     UPDATE portal_offers
-    SET status = ?, influencer_notes = ?, responded_at = datetime('now'),
-        portal_user_id = ?, updated_at = datetime('now')
+    SET status = ?, influencer_notes = ?, responded_at = NOW(),
+        portal_user_id = ?, updated_at = NOW()
     WHERE id = ?
-  `).run(decision, influencer_notes || null, userId, offer.id as P);
+  `, [decision, influencer_notes || null, userId, offer.id]);
 
   // ── Commission calculation on acceptance ───────────────────────────────────
   if (decision === 'accepted') {
     try {
       const rate = offer.rate as number | null;
       if (rate && rate > 0) {
-        const settingRow = db.prepare("SELECT value FROM settings WHERE key = 'platform_commission_pct'")
-          .get() as { value: string } | undefined;
+        const settingRow = await db.get("SELECT value FROM settings WHERE key = 'platform_commission_pct'", []) as { value: string } | undefined;
         const feePct   = parseFloat(settingRow?.value || '10');
         const feeAmt   = Math.round((rate * feePct / 100) * 100) / 100;
         const netAmt   = Math.round((rate - feeAmt) * 100) / 100;
-        const currency = (offer.currency as string) || 'EGP';
+        const currency = (offer.currency as string) || 'SAR';
 
-        db.prepare(`
+        await db.run(`
           UPDATE portal_offers SET platform_fee_pct = ?, platform_fee_amount = ?, net_amount = ?
           WHERE id = ?
-        `).run(feePct, feeAmt, netAmt, offer.id as P);
+        `, [feePct, feeAmt, netAmt, offer.id]);
 
-        db.prepare(`
+        await db.run(`
           INSERT INTO commissions
             (id, transaction_type, reference_id, offer_title, influencer_id, gross_amount,
              commission_rate, commission_amount, net_amount, currency, status)
           VALUES (?, 'offer', ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
-        `).run(uuidv4() as P, offer.id as P, (offer.title || null) as P, (offer.influencer_id || null) as P,
-               rate as P, feePct as P, feeAmt as P, netAmt as P, currency as P);
+        `, [uuidv4(), offer.id, offer.title || null, offer.influencer_id || null,
+               rate, feePct, feeAmt, netAmt, currency]);
       }
 
       // Award loyalty points to influencer
       const loyaltyUserId = String(userId || linkedInfluencerId || '');
       if (loyaltyUserId) {
-        db.prepare(`
+        await db.run(`
           INSERT INTO loyalty_points (id, user_type, user_id, action, points, reference_id, note)
           VALUES (?, 'influencer', ?, 'offer_accepted', 10, ?, 'Offer accepted')
-        `).run(uuidv4() as P, loyaltyUserId as P, offer.id as P);
+        `, [uuidv4(), loyaltyUserId, offer.id]);
       }
     } catch (commErr) {
       console.error('[portal] Commission calculation failed:', commErr);
@@ -537,20 +516,16 @@ router.put('/offers/:id/respond', requirePortalAuth, (req: AuthRequest, res) => 
     const influencerName = (req.portalUser!.name as string) || (req.portalUser!.handle as string) || 'An influencer';
     const offerTitle = (offer.title as string) || 'offer';
 
-    // Find agency/admin user — try campaign creator first, then any admin
     let agencyUserId: string | undefined;
     if (offer.campaign_id) {
-      const campaign = db.prepare('SELECT created_by FROM campaigns WHERE id = ?')
-        .get(offer.campaign_id as P) as { created_by: string } | undefined;
+      const campaign = await db.get('SELECT created_by FROM campaigns WHERE id = ?', [offer.campaign_id]) as { created_by: string } | undefined;
       if (campaign?.created_by) {
-        const adminUser = db.prepare(`SELECT id FROM users WHERE (display_name = ? OR email = ?) LIMIT 1`)
-          .get(campaign.created_by as P, campaign.created_by as P) as { id: string } | undefined;
+        const adminUser = await db.get(`SELECT id FROM users WHERE (display_name = ? OR email = ?) LIMIT 1`, [campaign.created_by, campaign.created_by]) as { id: string } | undefined;
         agencyUserId = adminUser?.id;
       }
     }
     if (!agencyUserId) {
-      const fallback = db.prepare(`SELECT id FROM users WHERE role IN ('platform_admin','agency') LIMIT 1`)
-        .get() as { id: string } | undefined;
+      const fallback = await db.get(`SELECT id FROM users WHERE role IN ('platform_admin','agency') LIMIT 1`, []) as { id: string } | undefined;
       agencyUserId = fallback?.id;
     }
 
@@ -560,7 +535,7 @@ router.put('/offers/:id/respond', requirePortalAuth, (req: AuthRequest, res) => 
       const message = decision === 'accepted'
         ? `${influencerName} accepted the offer: ${offerTitle}`
         : `${influencerName} declined the offer: ${offerTitle}`;
-      createNotification(agencyUserId, type, title, message, `/offers/${String(offer.id)}`);
+      await createNotification(agencyUserId, type, title, message, `/offers/${String(offer.id)}`);
     }
   } catch (notifErr) {
     console.error('Notification trigger failed (portal respond):', notifErr);
@@ -570,18 +545,17 @@ router.put('/offers/:id/respond', requirePortalAuth, (req: AuthRequest, res) => 
 });
 
 /* ── Submit deliverable ───────────────────────────────────── */
-router.post('/offers/:id/deliverables', requirePortalAuth, (req: AuthRequest, res) => {
+router.post('/offers/:id/deliverables', requirePortalAuth, async (req: AuthRequest, res) => {
   const { content_url, caption, notes, submission_type = 'link' } = req.body;
 
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
-  const linkedInfluencerId = req.portalUser!.influencer_id as P | null;
+  const userId = req.portalUser!.id as string;
+  const linkedInfluencerId = req.portalUser!.influencer_id as string | null;
 
-  const offer = db.prepare(`
+  const offer = await db.get(`
     SELECT * FROM portal_offers WHERE id = ? AND (
       portal_user_id = ? OR (influencer_id = ? AND ? IS NOT NULL)
     )
-  `).get(req.params.id, userId, linkedInfluencerId, linkedInfluencerId) as Record<string, unknown> | undefined;
+  `, [req.params.id, userId, linkedInfluencerId, linkedInfluencerId]) as Record<string, unknown> | undefined;
 
   if (!offer) return res.status(404).json({ error: 'Offer not found' });
   if (!['accepted', 'in_progress'].includes(String(offer.status))) {
@@ -593,25 +567,22 @@ router.post('/offers/:id/deliverables', requirePortalAuth, (req: AuthRequest, re
 
   // Ensure portal_user_id is set
   if (!offer.portal_user_id) {
-    db.prepare(`UPDATE portal_offers SET portal_user_id = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(userId, offer.id as P);
+    await db.run(`UPDATE portal_offers SET portal_user_id = ?, updated_at = NOW() WHERE id = ?`, [userId, offer.id]);
   }
 
   const id = uuidv4();
-  db.prepare(`
+  await db.run(`
     INSERT INTO portal_deliverables (id, offer_id, portal_user_id, submission_type, content_url, caption, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, offer.id as P, userId, submission_type, content_url || null, caption || null, notes || null);
+  `, [id, offer.id, userId, submission_type, content_url || null, caption || null, notes || null]);
 
   // Auto-update offer status to 'submitted'
-  db.prepare(`UPDATE portal_offers SET status = 'submitted', updated_at = datetime('now') WHERE id = ?`)
-    .run(offer.id as P);
+  await db.run(`UPDATE portal_offers SET status = 'submitted', updated_at = NOW() WHERE id = ?`, [offer.id]);
 
   // Notify agency that a deliverable was submitted
   try {
     if (offer.created_by) {
-      const agencyUser = db.prepare('SELECT email, name FROM users WHERE id = ?')
-        .get(offer.created_by as P) as { email: string; name: string } | undefined;
+      const agencyUser = await db.get('SELECT email, name FROM users WHERE id = ?', [offer.created_by]) as { email: string; name: string } | undefined;
       if (agencyUser?.email) {
         sendDeliverableSubmittedEmail(agencyUser.email, {
           influencerName: (req.portalUser!.name as string) || 'Influencer',
@@ -623,21 +594,20 @@ router.post('/offers/:id/deliverables', requirePortalAuth, (req: AuthRequest, re
     }
   } catch { /* non-critical */ }
 
-  const deliverable = db.prepare('SELECT * FROM portal_deliverables WHERE id = ?').get(id);
+  const deliverable = await db.get('SELECT * FROM portal_deliverables WHERE id = ?', [id]);
   res.status(201).json(deliverable);
 });
 
 /* ── Upload file deliverable ─────────────────────────────── */
-router.post('/offers/:id/deliverables/upload', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
-  const linkedInfluencerId = req.portalUser!.influencer_id as P | null;
+router.post('/offers/:id/deliverables/upload', requirePortalAuth, async (req: AuthRequest, res) => {
+  const userId = req.portalUser!.id as string;
+  const linkedInfluencerId = req.portalUser!.influencer_id as string | null;
 
-  const offer = db.prepare(`
+  const offer = await db.get(`
     SELECT * FROM portal_offers WHERE id = ? AND (
       portal_user_id = ? OR (influencer_id = ? AND ? IS NOT NULL)
     )
-  `).get(req.params.id, userId, linkedInfluencerId, linkedInfluencerId) as Record<string, unknown> | undefined;
+  `, [req.params.id, userId, linkedInfluencerId, linkedInfluencerId]) as Record<string, unknown> | undefined;
 
   if (!offer) return res.status(404).json({ error: 'Offer not found' });
   if (!['accepted', 'in_progress'].includes(String(offer.status))) {
@@ -645,10 +615,13 @@ router.post('/offers/:id/deliverables/upload', requirePortalAuth, (req: AuthRequ
   }
 
   // express-fileupload attaches files to req.files
-  const files = (req as P).files;
+  const files = (req as Request & { files?: Record<string, unknown> }).files;
   if (!files || !files.file) return res.status(400).json({ error: 'No file uploaded' });
 
-  const file = Array.isArray(files.file) ? files.file[0] : files.file;
+  const file = Array.isArray(files.file) ? (files.file as unknown[])[0] : files.file as {
+    mimetype: string; size: number; name: string;
+    mv: (path: string, cb: (err: Error) => void) => void;
+  };
 
   // Allowed types
   const ALLOWED = [
@@ -656,10 +629,10 @@ router.post('/offers/:id/deliverables/upload', requirePortalAuth, (req: AuthRequ
     'video/mp4', 'video/quicktime', 'video/webm',
     'application/pdf',
   ];
-  if (!ALLOWED.includes(file.mimetype)) {
+  if (!ALLOWED.includes((file as { mimetype: string }).mimetype)) {
     return res.status(400).json({ error: 'File type not allowed. Accepted: images, videos, PDF.' });
   }
-  if (file.size > 200 * 1024 * 1024) {
+  if ((file as { size: number }).size > 200 * 1024 * 1024) {
     return res.status(400).json({ error: 'File too large (max 200 MB)' });
   }
 
@@ -667,10 +640,12 @@ router.post('/offers/:id/deliverables/upload', requirePortalAuth, (req: AuthRequ
   const uploadDir = path.join(__dirname, '../../../uploads/deliverables');
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-  const ext = path.extname(file.name) || '';
+  const typedFile = file as { mimetype: string; size: number; name: string; mv: (p: string, cb: (e: Error) => void) => void };
+  const ext = path.extname(typedFile.name) || '';
   const filename = `${uuidv4()}${ext}`;
   const filePath = path.join(uploadDir, filename);
-  file.mv(filePath, (err: Error) => {
+
+  typedFile.mv(filePath, async (err: Error) => {
     if (err) {
       console.error('File move error:', err);
       return res.status(500).json({ error: 'Failed to save file' });
@@ -680,70 +655,64 @@ router.post('/offers/:id/deliverables/upload', requirePortalAuth, (req: AuthRequ
 
     // Ensure portal_user_id is set
     if (!offer.portal_user_id) {
-      db.prepare(`UPDATE portal_offers SET portal_user_id = ?, updated_at = datetime('now') WHERE id = ?`)
-        .run(userId, offer.id as P);
+      await db.run(`UPDATE portal_offers SET portal_user_id = ?, updated_at = NOW() WHERE id = ?`, [userId, offer.id]);
     }
 
     const delivId = uuidv4();
     const fileUrl = `/uploads/deliverables/${filename}`;
-    db.prepare(`
+    await db.run(`
       INSERT INTO portal_deliverables (id, offer_id, portal_user_id, submission_type, content_url, file_name, file_size, mime_type, caption, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(delivId, offer.id as P, userId, 'file', fileUrl, file.name, file.size, file.mimetype, caption || null, notes || null);
+    `, [delivId, offer.id, userId, 'file', fileUrl, typedFile.name, typedFile.size, typedFile.mimetype, caption || null, notes || null]);
 
     // Auto-update offer status to 'submitted'
-    db.prepare(`UPDATE portal_offers SET status = 'submitted', updated_at = datetime('now') WHERE id = ?`)
-      .run(offer.id as P);
+    await db.run(`UPDATE portal_offers SET status = 'submitted', updated_at = NOW() WHERE id = ?`, [offer.id]);
 
-    const deliverable = db.prepare('SELECT * FROM portal_deliverables WHERE id = ?').get(delivId);
+    const deliverable = await db.get('SELECT * FROM portal_deliverables WHERE id = ?', [delivId]);
     res.status(201).json(deliverable);
   });
 });
 
 /* ── Accept counter-offer (portal side) ──────────────────── */
-router.post('/offers/:id/accept-counter', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
-  const linkedInfluencerId = req.portalUser!.influencer_id as P | null;
+router.post('/offers/:id/accept-counter', requirePortalAuth, async (req: AuthRequest, res) => {
+  const userId = req.portalUser!.id as string;
+  const linkedInfluencerId = req.portalUser!.influencer_id as string | null;
 
-  const offer = db.prepare(`
+  const offer = await db.get(`
     SELECT * FROM portal_offers WHERE id = ? AND (
       portal_user_id = ? OR (influencer_id = ? AND ? IS NOT NULL)
     )
-  `).get(req.params.id, userId, linkedInfluencerId, linkedInfluencerId) as Record<string, unknown> | undefined;
+  `, [req.params.id, userId, linkedInfluencerId, linkedInfluencerId]) as Record<string, unknown> | undefined;
 
   if (!offer) return res.status(404).json({ error: 'Offer not found' });
   if (!offer.counter_rate) return res.status(400).json({ error: 'No counter-offer to accept' });
 
-  db.prepare(`
+  await db.run(`
     UPDATE portal_offers
     SET rate = ?, currency = COALESCE(counter_currency, currency),
         counter_rate = NULL, counter_currency = NULL, counter_notes = NULL, counter_by = NULL, counter_at = NULL,
-        status = 'accepted', responded_at = datetime('now'), updated_at = datetime('now')
+        status = 'accepted', responded_at = NOW(), updated_at = NOW()
     WHERE id = ?
-  `).run(offer.counter_rate as P, req.params.id);
+  `, [offer.counter_rate, req.params.id]);
 
-  const updated = db.prepare('SELECT * FROM portal_offers WHERE id = ?').get(req.params.id);
+  const updated = await db.get('SELECT * FROM portal_offers WHERE id = ?', [req.params.id]);
   res.json(updated);
 });
 
 /* ── Portal Social Connections ───────────────────────────── */
 
 // GET /api/portal/connections — list connected social accounts for this influencer
-router.get('/connections', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
+router.get('/connections', requirePortalAuth, async (req: AuthRequest, res) => {
+  const userId = req.portalUser!.id as string;
 
-  // Find the linked influencer_id from portal user
-  const portalUser = db.prepare('SELECT influencer_id FROM portal_users WHERE id = ?').get(userId) as { influencer_id: string | null } | undefined;
+  const portalUser = await db.get('SELECT influencer_id FROM portal_users WHERE id = ?', [userId]) as { influencer_id: string | null } | undefined;
   const influencerId = portalUser?.influencer_id;
 
   if (!influencerId) {
     return res.json([]);
   }
 
-  // Join social_accounts with latest platform_stats
-  const connections = db.prepare(`
+  const connections = await db.all(`
     SELECT sa.*,
       sa.platform_username AS username,
       ps.followers_count, ps.following_count, ps.engagement_rate, ps.avg_views
@@ -756,7 +725,7 @@ router.get('/connections', requirePortalAuth, (req: AuthRequest, res) => {
     LEFT JOIN platform_stats ps ON ps.platform = sa.platform AND ps.influencer_id = ? AND ps.captured_at = latest.latest_at
     WHERE sa.influencer_id = ?
     ORDER BY sa.connected_at DESC
-  `).all(influencerId as P, influencerId as P, influencerId as P);
+  `, [influencerId, influencerId, influencerId]);
 
   res.json(connections);
 });
@@ -764,69 +733,63 @@ router.get('/connections', requirePortalAuth, (req: AuthRequest, res) => {
 // GET /api/portal/connections/oauth/:platform — get OAuth URL for portal user
 router.get('/connections/oauth/:platform', requirePortalAuth, (req: AuthRequest, res) => {
   const { platform } = req.params;
-  const userId = req.portalUser!.id as P;
+  const userId = req.portalUser!.id as string;
 
-  const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001';
-
-  // Build OAuth start URL with portal context
-  const authUrl = `${BACKEND_URL}/api/oauth/${platform}/authorize?portal_user_id=${userId}`;
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+  const authUrl = `${backendUrl}/api/oauth/${platform}/authorize?portal_user_id=${userId}`;
 
   res.json({ auth_url: authUrl });
 });
 
 // DELETE /api/portal/connections/:platform — disconnect a platform
-router.delete('/connections/:platform', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
+router.delete('/connections/:platform', requirePortalAuth, async (req: AuthRequest, res) => {
+  const userId = req.portalUser!.id as string;
   const { platform } = req.params;
 
-  const portalUser = db.prepare('SELECT influencer_id FROM portal_users WHERE id = ?').get(userId) as { influencer_id: string | null } | undefined;
+  const portalUser = await db.get('SELECT influencer_id FROM portal_users WHERE id = ?', [userId]) as { influencer_id: string | null } | undefined;
   const influencerId = portalUser?.influencer_id;
 
   if (!influencerId) {
     return res.status(400).json({ error: 'No influencer linked to this account' });
   }
 
-  db.prepare('DELETE FROM social_accounts WHERE influencer_id = ? AND platform = ?').run(influencerId as P, platform);
+  await db.run('DELETE FROM social_accounts WHERE influencer_id = ? AND platform = ?', [influencerId, platform]);
   res.json({ success: true });
 });
 
 /* ── Portal Fan Requests ─────────────────────────────────── */
 
 // GET /api/portal/fan-requests — influencer sees fan requests directed at them
-router.get('/fan-requests', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
-  const portalUser = db.prepare('SELECT influencer_id FROM portal_users WHERE id = ?').get(userId) as { influencer_id: string | null } | undefined;
+router.get('/fan-requests', requirePortalAuth, async (req: AuthRequest, res) => {
+  const userId = req.portalUser!.id as string;
+  const portalUser = await db.get('SELECT influencer_id FROM portal_users WHERE id = ?', [userId]) as { influencer_id: string | null } | undefined;
   const influencerId = portalUser?.influencer_id;
   if (!influencerId) return res.json([]);
 
   const { status } = req.query;
   let where = 'WHERE fr.influencer_id = ?';
-  const params: P[] = [influencerId];
+  const params: unknown[] = [influencerId];
   if (status && status !== 'all') { where += ' AND fr.status = ?'; params.push(status); }
 
-  const requests = db.prepare(`
+  const requests = await db.all(`
     SELECT fr.*, fu.name AS fan_name, fu.email AS fan_email, fu.username AS fan_username
     FROM fan_requests fr
     JOIN fan_users fu ON fu.id = fr.fan_user_id
     ${where}
     ORDER BY fr.submitted_at DESC
-  `).all(...params);
+  `, params);
 
   res.json(requests);
 });
 
 // PUT /api/portal/fan-requests/:id/respond — accept, decline, or mark fulfilled
-router.put('/fan-requests/:id/respond', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
-  const portalUser = db.prepare('SELECT influencer_id FROM portal_users WHERE id = ?').get(userId) as { influencer_id: string | null } | undefined;
+router.put('/fan-requests/:id/respond', requirePortalAuth, async (req: AuthRequest, res) => {
+  const userId = req.portalUser!.id as string;
+  const portalUser = await db.get('SELECT influencer_id FROM portal_users WHERE id = ?', [userId]) as { influencer_id: string | null } | undefined;
   const influencerId = portalUser?.influencer_id;
   if (!influencerId) return res.status(403).json({ error: 'No influencer linked' });
 
-  const request = db.prepare('SELECT * FROM fan_requests WHERE id = ? AND influencer_id = ?')
-    .get(req.params.id as P, influencerId as P) as Record<string, unknown> | undefined;
+  const request = await db.get('SELECT * FROM fan_requests WHERE id = ? AND influencer_id = ?', [req.params.id, influencerId]) as Record<string, unknown> | undefined;
   if (!request) return res.status(404).json({ error: 'Request not found' });
 
   const { decision, influencer_note, delivery_url, delivery_note } = req.body;
@@ -847,19 +810,18 @@ router.put('/fan-requests/:id/respond', requirePortalAuth, (req: AuthRequest, re
     updates.responded_at = updates.responded_at || request.responded_at || new Date().toISOString();
     if (delivery_url) updates.delivery_url = delivery_url;
     if (delivery_note) updates.delivery_note = delivery_note;
-    // Generate a public share token so the fan can share their delivery page
     if (!request.share_token) updates.share_token = uuidv4().replace(/-/g, '');
   }
   if (decision === 'declined') updates.responded_at = new Date().toISOString();
 
   const set = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-  db.prepare(`UPDATE fan_requests SET ${set} WHERE id = ?`).run(...Object.values(updates) as P[], req.params.id);
+  await db.run(`UPDATE fan_requests SET ${set} WHERE id = ?`, [...Object.values(updates), req.params.id]);
 
-  const updated = db.prepare(`
+  const updated = await db.get(`
     SELECT fr.*, fu.name AS fan_name, fu.email AS fan_email, fu.username AS fan_username
     FROM fan_requests fr JOIN fan_users fu ON fu.id = fr.fan_user_id
     WHERE fr.id = ?
-  `).get(req.params.id as P) as Record<string, unknown> | undefined;
+  `, [req.params.id]) as Record<string, unknown> | undefined;
 
   // Email fan when request is fulfilled
   if (decision === 'fulfilled' && updated?.fan_email) {
@@ -877,9 +839,9 @@ router.put('/fan-requests/:id/respond', requirePortalAuth, (req: AuthRequest, re
 
     // Award loyalty points to fan
     try {
-      db.prepare(`INSERT INTO loyalty_points (id, user_type, user_id, action, points, reference_id, note)
-        VALUES (?, 'fan', ?, 'fan_request_fulfilled', 10, ?, 'Request fulfilled')`)
-        .run(uuidv4() as P, request.fan_user_id as P, request.id as P);
+      await db.run(`INSERT INTO loyalty_points (id, user_type, user_id, action, points, reference_id, note)
+        VALUES (?, 'fan', ?, 'fan_request_fulfilled', 10, ?, 'Request fulfilled')`,
+        [uuidv4(), request.fan_user_id, request.id]);
     } catch { /* non-critical */ }
   }
 
@@ -887,10 +849,9 @@ router.put('/fan-requests/:id/respond', requirePortalAuth, (req: AuthRequest, re
 });
 
 // PUT /api/portal/fan-settings — influencer sets prices & fan access settings
-router.put('/fan-settings', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
-  const portalUser = db.prepare('SELECT influencer_id FROM portal_users WHERE id = ?').get(userId) as { influencer_id: string | null } | undefined;
+router.put('/fan-settings', requirePortalAuth, async (req: AuthRequest, res) => {
+  const userId = req.portalUser!.id as string;
+  const portalUser = await db.get('SELECT influencer_id FROM portal_users WHERE id = ?', [userId]) as { influencer_id: string | null } | undefined;
   const influencerId = portalUser?.influencer_id;
   if (!influencerId) return res.status(403).json({ error: 'No influencer linked' });
 
@@ -902,32 +863,26 @@ router.put('/fan-settings', requirePortalAuth, (req: AuthRequest, res) => {
     if (req.body[k] !== undefined) updates[k] = req.body[k];
   }
 
-  // Add columns if missing
-  for (const col of allowed) {
-    try { db.exec(`ALTER TABLE influencers ADD COLUMN ${col} ${col.endsWith('_enabled') ? 'INTEGER DEFAULT 1' : col.endsWith('_price') ? 'REAL' : 'TEXT'}`); } catch { }
-  }
-
   const set = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-  db.prepare(`UPDATE influencers SET ${set} WHERE id = ?`).run(...Object.values(updates) as P[], influencerId);
+  await db.run(`UPDATE influencers SET ${set} WHERE id = ?`, [...Object.values(updates), influencerId]);
 
-  const influencer = db.prepare('SELECT * FROM influencers WHERE id = ?').get(influencerId as P);
+  const influencer = await db.get('SELECT * FROM influencers WHERE id = ?', [influencerId]);
   res.json(influencer);
 });
 
 // GET /api/portal/fan-settings — get current fan settings
-router.get('/fan-settings', requirePortalAuth, (req: AuthRequest, res) => {
-  const db = getDb();
-  const userId = req.portalUser!.id as P;
-  const portalUser = db.prepare('SELECT influencer_id FROM portal_users WHERE id = ?').get(userId) as { influencer_id: string | null } | undefined;
+router.get('/fan-settings', requirePortalAuth, async (req: AuthRequest, res) => {
+  const userId = req.portalUser!.id as string;
+  const portalUser = await db.get('SELECT influencer_id FROM portal_users WHERE id = ?', [userId]) as { influencer_id: string | null } | undefined;
   const influencerId = portalUser?.influencer_id;
   if (!influencerId) return res.json({});
 
-  const settings = db.prepare(`
+  const settings = await db.get(`
     SELECT fan_shoutout_price, fan_video_price, fan_photo_price,
            fan_meetup_price, fan_live_chat_price, fan_custom_price,
            fan_response_time, fan_bio, fan_requests_enabled
     FROM influencers WHERE id = ?
-  `).get(influencerId as P);
+  `, [influencerId]);
   res.json(settings || {});
 });
 

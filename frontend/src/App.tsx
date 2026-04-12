@@ -97,6 +97,12 @@ import IntelligencePage from './pages/IntelligencePage';
 // Outreach Pipeline
 import OutreachPage from './pages/OutreachPage';
 
+// AI Agent
+import AgentPage from './pages/AgentPage';
+
+// Live partner dashboard
+import LiveDashboard from './pages/LiveDashboard';
+
 // 404
 import NotFoundPage from './pages/NotFoundPage';
 
@@ -158,24 +164,32 @@ export default function App() {
           <Route path="profile"             element={<FanProfilePage />} />
         </Route>
 
-        {/* ── Admin routes (platform_admin only) ───────────────────────────*/}
+        {/* ── Admin routes (platform_admin + viewer) ────────────────────────*/}
         <Route path="/admin" element={
-          <RoleGuard roles={['platform_admin']}>
+          <RoleGuard roles={['platform_admin', 'viewer']}>
             <Layout />
           </RoleGuard>
         }>
-          <Route index element={<Navigate to="/admin/dashboard" replace />} />
-          <Route path="dashboard"    element={<AdminDashboard />} />
-          <Route path="integrations" element={<AdminIntegrationsPage />} />
-          <Route path="users"       element={<AdminUsersPage />} />
-          <Route path="influencers" element={<InfluencersPage />} />
-          <Route path="agencies"    element={<AdminAgenciesPage />} />
-          <Route path="brands"      element={<AdminBrandsPage />} />
-          <Route path="payments"    element={<PaymentsPage />} />
-          <Route path="revenue"     element={<RevenuePage />} />
+          {/* viewer lands on analytics; admin lands on dashboard */}
+          <Route index element={
+            <RoleGuard roles={['platform_admin']} redirectTo="/admin/analytics">
+              <Navigate to="/admin/dashboard" replace />
+            </RoleGuard>
+          } />
+          {/* platform_admin only — write/sensitive pages */}
+          <Route path="dashboard"    element={<RoleGuard roles={['platform_admin']} redirectTo="/admin/analytics"><AdminDashboard /></RoleGuard>} />
+          <Route path="integrations" element={<RoleGuard roles={['platform_admin']} redirectTo="/admin/analytics"><AdminIntegrationsPage /></RoleGuard>} />
+          <Route path="users"        element={<RoleGuard roles={['platform_admin']} redirectTo="/admin/analytics"><AdminUsersPage /></RoleGuard>} />
+          <Route path="agencies"     element={<RoleGuard roles={['platform_admin']} redirectTo="/admin/analytics"><AdminAgenciesPage /></RoleGuard>} />
+          <Route path="brands"       element={<RoleGuard roles={['platform_admin']} redirectTo="/admin/analytics"><AdminBrandsPage /></RoleGuard>} />
+          <Route path="payments"     element={<RoleGuard roles={['platform_admin']} redirectTo="/admin/analytics"><PaymentsPage /></RoleGuard>} />
+          <Route path="deduplicate"  element={<RoleGuard roles={['platform_admin']} redirectTo="/admin/analytics"><DeduplicatePage /></RoleGuard>} />
+          <Route path="settings"     element={<RoleGuard roles={['platform_admin']} redirectTo="/admin/analytics"><SettingsPage /></RoleGuard>} />
+          {/* platform_admin + viewer — read-only pages */}
           <Route path="analytics"    element={<AdminAnalyticsPage />} />
-          <Route path="deduplicate"  element={<DeduplicatePage />} />
-          <Route path="settings"     element={<SettingsPage />} />
+          <Route path="influencers"  element={<InfluencersPage />} />
+          <Route path="campaigns"    element={<CampaignsPage />} />
+          <Route path="revenue"      element={<RevenuePage />} />
         </Route>
 
         {/* ── Brand routes ─────────────────────────────────────────────────*/}
@@ -219,6 +233,7 @@ export default function App() {
           <Route path="influencers/:id/mediakit"      element={<InfluencerMediaKitPage />} />
           <Route path="intelligence/:id"             element={<IntelligencePage />} />
           <Route path="outreach"                     element={<OutreachPage />} />
+          <Route path="agent"                        element={<AgentPage />} />
           <Route path="campaigns"       element={<CampaignsPage />} />
           <Route path="campaigns/:id"   element={<CampaignDetailPage />} />
           <Route path="campaigns/:id/report" element={<CampaignReportPage />} />
@@ -234,6 +249,13 @@ export default function App() {
           <Route path="settings"        element={<SettingsPage />} />
           <Route path="creators"        element={<PublicCreatorsPage />} />
         </Route>
+
+        {/* ── Live partner/investor dashboard ─────────────────────────────── */}
+        <Route path="/live" element={
+          <RoleGuard roles={['platform_admin', 'viewer']}>
+            <LiveDashboard />
+          </RoleGuard>
+        } />
 
         {/* ── 404 catch-all ────────────────────────────────────────────────── */}
         <Route path="*" element={<NotFoundPage />} />

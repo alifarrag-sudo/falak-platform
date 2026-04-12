@@ -4,7 +4,7 @@
  * Classifies comments and extracts themes for audience intelligence.
  * Stubs gracefully when OPENAI_API_KEY is not configured.
  */
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 
@@ -89,31 +89,29 @@ export async function storeSentiment(
   result: SentimentResult,
   postId?: string,
 ): Promise<void> {
-  const db = getDb();
-  db.prepare(`
+  await db.run(`
     INSERT INTO sentiment_analysis (
       id, influencer_id, platform, post_id,
       positive_pct, neutral_pct, negative_pct,
       troll_count, spam_count, genuine_fan_count,
       top_positive_keywords, top_negative_keywords, analyzed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-  `).run(
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+  `, [
     crypto.randomUUID(), influencerId, platform, postId || null,
     result.positive_pct, result.neutral_pct, result.negative_pct,
     result.troll_count, result.spam_count, result.genuine_fan_count,
     JSON.stringify(result.top_positive_keywords),
     JSON.stringify(result.top_negative_keywords),
-  );
+  ]);
 }
 
 /** Get latest sentiment for an influencer */
-export function getLatestSentiment(influencerId: string, platform = 'instagram') {
-  const db = getDb();
-  const row = db.prepare(`
+export async function getLatestSentiment(influencerId: string, platform = 'instagram'): Promise<Record<string, unknown> | null> {
+  const row = await db.get(`
     SELECT * FROM sentiment_analysis
     WHERE influencer_id = ? AND platform = ?
     ORDER BY analyzed_at DESC LIMIT 1
-  `).get(influencerId, platform) as Record<string, unknown> | undefined;
+  `, [influencerId, platform]) as Record<string, unknown> | undefined;
 
   if (!row) return null;
 
@@ -126,15 +124,13 @@ export function getLatestSentiment(influencerId: string, platform = 'instagram')
 
 /** Run sentiment analysis for an influencer using their stored post data */
 export async function runSentimentForInfluencer(influencerId: string): Promise<void> {
-  const db = getDb();
-
   // Get recent post captions as proxy for comment analysis
   // In production this would use Phyllo post comments
-  const posts = db.prepare(`
+  const posts = await db.all(`
     SELECT caption FROM influencer_posts
     WHERE influencer_id = ? AND caption IS NOT NULL
     ORDER BY posted_at DESC LIMIT 50
-  `).all(influencerId) as Array<{ caption: string }>;
+  `, [influencerId]) as Array<{ caption: string }>;
 
   const comments = posts.map(p => p.caption).filter(Boolean);
   if (!comments.length) {
@@ -146,11 +142,11 @@ export async function runSentimentForInfluencer(influencerId: string): Promise<v
 
   const platforms = ['instagram', 'tiktok', 'youtube'];
   for (const platform of platforms) {
-    const platformPosts = db.prepare(`
+    const platformPosts = await db.all(`
       SELECT caption FROM influencer_posts
       WHERE influencer_id = ? AND platform = ? AND caption IS NOT NULL
       LIMIT 30
-    `).all(influencerId, platform) as Array<{ caption: string }>;
+    `, [influencerId, platform]) as Array<{ caption: string }>;
 
     if (platformPosts.length > 0) {
       const result = await analyzeComments(platformPosts.map(p => p.caption));

@@ -9,15 +9,12 @@
  */
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 import {
   getAuthorizationUrl, exchangeCodeForToken, decodeState,
   encryptToken, PlatformKey,
 } from '../services/oauthService';
 import { syncSocialAccount } from '../services/platformSyncService';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
 
 const router = Router();
 
@@ -82,11 +79,8 @@ router.get('/callback/:platform', async (req: Request, res: Response): Promise<v
     // Exchange code for token
     const tokens = await exchangeCodeForToken(platform, code, state);
 
-    const db = getDb();
-
     // Find influencer_id from portal user
-    const portalUser = db.prepare('SELECT influencer_id FROM portal_users WHERE id = ?')
-      .get(portalUserId as P) as { influencer_id: string | null } | undefined;
+    const portalUser = await db.get('SELECT influencer_id FROM portal_users WHERE id = ?', [portalUserId]) as { influencer_id: string | null } | undefined;
 
     const influencerId = portalUser?.influencer_id || portalUserId; // fallback to portal user id
 
@@ -95,35 +89,26 @@ router.get('/callback/:platform', async (req: Request, res: Response): Promise<v
       : null;
 
     // Upsert social_accounts
-    const existing = db.prepare(
-      'SELECT id FROM social_accounts WHERE influencer_id = ? AND platform = ?'
-    ).get(influencerId as P, platform as P) as { id: string } | undefined;
+    const existing = await db.get(
+      'SELECT id FROM social_accounts WHERE influencer_id = ? AND platform = ?',
+      [influencerId, platform]
+    ) as { id: string } | undefined;
 
     if (existing) {
-      db.prepare(`
+      await db.run(`
         UPDATE social_accounts
         SET access_token = ?, refresh_token = ?, token_expiry = ?,
-            connected_at = datetime('now'), sync_status = 'pending'
+            connected_at = NOW(), sync_status = 'pending'
         WHERE id = ?
-      `).run(
-        encryptToken(tokens.access_token) as P,
-        (tokens.refresh_token ? encryptToken(tokens.refresh_token) : null) as P,
-        tokenExpiry as P,
-        existing.id as P,
-      );
+      `, [encryptToken(tokens.access_token), tokens.refresh_token ? encryptToken(tokens.refresh_token) : null, tokenExpiry, existing.id]);
       // Trigger immediate sync
       syncSocialAccount(existing.id).catch(console.error);
     } else {
       const id = uuidv4();
-      db.prepare(`
+      await db.run(`
         INSERT INTO social_accounts (id, influencer_id, platform, access_token, refresh_token, token_expiry, sync_status)
         VALUES (?, ?, ?, ?, ?, ?, 'pending')
-      `).run(
-        id as P, influencerId as P, platform as P,
-        encryptToken(tokens.access_token) as P,
-        (tokens.refresh_token ? encryptToken(tokens.refresh_token) : null) as P,
-        tokenExpiry as P,
-      );
+      `, [id, influencerId, platform, encryptToken(tokens.access_token), tokens.refresh_token ? encryptToken(tokens.refresh_token) : null, tokenExpiry]);
       syncSocialAccount(id).catch(console.error);
     }
 
@@ -141,16 +126,14 @@ router.get('/connections', async (req: Request, res: Response): Promise<void> =>
   if (!portalUserId) { res.json({ connections: [] }); return; }
 
   try {
-    const db = getDb();
-    const portalUser = db.prepare('SELECT influencer_id FROM portal_users WHERE id = ?')
-      .get(portalUserId as P) as { influencer_id: string | null } | undefined;
+    const portalUser = await db.get('SELECT influencer_id FROM portal_users WHERE id = ?', [portalUserId]) as { influencer_id: string | null } | undefined;
     const influencerId = portalUser?.influencer_id || portalUserId;
 
-    const connections = db.prepare(`
+    const connections = await db.all(`
       SELECT platform, platform_username, connected_at, last_synced_at, sync_status
       FROM social_accounts
       WHERE influencer_id = ?
-    `).all(influencerId as P) as Record<string, unknown>[];
+    `, [influencerId]);
 
     res.json({ connections });
   } catch (err) {
@@ -166,13 +149,10 @@ router.delete('/connections/:platform', async (req: Request, res: Response): Pro
   if (!portalUserId) { res.status(400).json({ error: 'user_id required' }); return; }
 
   try {
-    const db = getDb();
-    const portalUser = db.prepare('SELECT influencer_id FROM portal_users WHERE id = ?')
-      .get(portalUserId as P) as { influencer_id: string | null } | undefined;
+    const portalUser = await db.get('SELECT influencer_id FROM portal_users WHERE id = ?', [portalUserId]) as { influencer_id: string | null } | undefined;
     const influencerId = portalUser?.influencer_id || portalUserId;
 
-    db.prepare('DELETE FROM social_accounts WHERE influencer_id = ? AND platform = ?')
-      .run(influencerId as P, platform as P);
+    await db.run('DELETE FROM social_accounts WHERE influencer_id = ? AND platform = ?', [influencerId, platform]);
 
     res.json({ ok: true });
   } catch (err) {
@@ -188,14 +168,13 @@ router.post('/sync/:platform', async (req: Request, res: Response): Promise<void
   if (!portalUserId) { res.status(400).json({ error: 'user_id required' }); return; }
 
   try {
-    const db = getDb();
-    const portalUser = db.prepare('SELECT influencer_id FROM portal_users WHERE id = ?')
-      .get(portalUserId as P) as { influencer_id: string | null } | undefined;
+    const portalUser = await db.get('SELECT influencer_id FROM portal_users WHERE id = ?', [portalUserId]) as { influencer_id: string | null } | undefined;
     const influencerId = portalUser?.influencer_id || portalUserId;
 
-    const account = db.prepare(
-      'SELECT id FROM social_accounts WHERE influencer_id = ? AND platform = ?'
-    ).get(influencerId as P, platform as P) as { id: string } | undefined;
+    const account = await db.get(
+      'SELECT id FROM social_accounts WHERE influencer_id = ? AND platform = ?',
+      [influencerId, platform]
+    ) as { id: string } | undefined;
 
     if (!account) { res.status(404).json({ error: 'Account not connected' }); return; }
 

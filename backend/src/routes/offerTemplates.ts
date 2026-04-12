@@ -7,19 +7,16 @@
  */
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../db/schema';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
+import { db } from '../db/connection';
 
 const router = Router();
 
-router.get('/', (_req: Request, res: Response): void => {
+router.get('/', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const db = getDb();
-    const rows = db.prepare(
-      'SELECT * FROM offer_templates ORDER BY name ASC'
-    ).all() as Record<string, unknown>[];
+    const rows = await db.all(
+      'SELECT * FROM offer_templates ORDER BY name ASC',
+      []
+    );
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -27,21 +24,20 @@ router.get('/', (_req: Request, res: Response): void => {
   }
 });
 
-router.post('/', (req: Request, res: Response): void => {
+router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const db = getDb();
     const { name, title, platform, content_type, brief, deliverables, rate, currency, agency_notes } = req.body as Record<string, unknown>;
     if (!name) { res.status(400).json({ error: 'name is required' }); return; }
     const id = uuidv4();
-    db.prepare(`
+    await db.run(`
       INSERT INTO offer_templates (id, name, title, platform, content_type, brief, deliverables, rate, currency, agency_notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id as P, name as P, (title ?? null) as P, (platform ?? null) as P,
-      (content_type ?? null) as P, (brief ?? null) as P, (deliverables ?? null) as P,
-      (rate ?? null) as P, (currency ?? 'SAR') as P, (agency_notes ?? null) as P
-    );
-    const created = db.prepare('SELECT * FROM offer_templates WHERE id = ?').get(id as P);
+    `, [
+      id, name, title ?? null, platform ?? null,
+      content_type ?? null, brief ?? null, deliverables ?? null,
+      rate ?? null, currency ?? 'SAR', agency_notes ?? null,
+    ]);
+    const created = await db.get('SELECT * FROM offer_templates WHERE id = ?', [id]);
     res.status(201).json(created);
   } catch (err) {
     console.error(err);
@@ -49,23 +45,22 @@ router.post('/', (req: Request, res: Response): void => {
   }
 });
 
-router.put('/:id', (req: Request, res: Response): void => {
+router.put('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const db = getDb();
     const { name, title, platform, content_type, brief, deliverables, rate, currency, agency_notes } = req.body as Record<string, unknown>;
-    db.prepare(`
+    await db.run(`
       UPDATE offer_templates SET
         name=?, title=?, platform=?, content_type=?, brief=?,
         deliverables=?, rate=?, currency=?, agency_notes=?,
-        updated_at=datetime('now')
+        updated_at=NOW()
       WHERE id=?
-    `).run(
-      (name ?? null) as P, (title ?? null) as P, (platform ?? null) as P,
-      (content_type ?? null) as P, (brief ?? null) as P, (deliverables ?? null) as P,
-      (rate ?? null) as P, (currency ?? 'SAR') as P, (agency_notes ?? null) as P,
-      req.params.id as P
-    );
-    const updated = db.prepare('SELECT * FROM offer_templates WHERE id = ?').get(req.params.id as P);
+    `, [
+      name ?? null, title ?? null, platform ?? null,
+      content_type ?? null, brief ?? null, deliverables ?? null,
+      rate ?? null, currency ?? 'SAR', agency_notes ?? null,
+      req.params.id,
+    ]);
+    const updated = await db.get('SELECT * FROM offer_templates WHERE id = ?', [req.params.id]);
     res.json(updated);
   } catch (err) {
     console.error(err);
@@ -73,10 +68,9 @@ router.put('/:id', (req: Request, res: Response): void => {
   }
 });
 
-router.delete('/:id', (req: Request, res: Response): void => {
+router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const db = getDb();
-    db.prepare('DELETE FROM offer_templates WHERE id = ?').run(req.params.id as P);
+    await db.run('DELETE FROM offer_templates WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);

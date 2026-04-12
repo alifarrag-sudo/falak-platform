@@ -1,4 +1,4 @@
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 
 export interface DiscoveredInfluencer {
   platform: 'instagram' | 'tiktok';
@@ -18,9 +18,8 @@ export interface DiscoveredInfluencer {
   already_imported: boolean;
 }
 
-function getRapidApiKey(): string | null {
-  const db = getDb();
-  const row = db.prepare(`SELECT value FROM settings WHERE key = 'rapidapi_key'`).get() as { value: string } | undefined;
+async function getRapidApiKey(): Promise<string | null> {
+  const row = await db.get(`SELECT value FROM settings WHERE key = 'rapidapi_key'`, []) as { value: string } | undefined;
   return row?.value || null;
 }
 
@@ -115,12 +114,10 @@ async function searchTikTok(
 }
 
 /** Mark which handles are already in our database */
-function markAlreadyImported(results: DiscoveredInfluencer[]): void {
-  const db = getDb();
+async function markAlreadyImported(results: DiscoveredInfluencer[]): Promise<void> {
   for (const r of results) {
     const col = r.platform === 'instagram' ? 'ig_handle' : 'tiktok_handle';
-    const existing = db.prepare(`SELECT id FROM influencers WHERE ${col} = ? AND is_archived = 0`)
-      .get(r.handle);
+    const existing = await db.get(`SELECT id FROM influencers WHERE ${col} = ? AND is_archived = 0`, [r.handle]);
     r.already_imported = !!existing;
   }
 }
@@ -130,7 +127,7 @@ export async function discoverInfluencers(
   platform: string,
   limit = 20
 ): Promise<{ results: DiscoveredInfluencer[]; error?: string }> {
-  const apiKey = getRapidApiKey();
+  const apiKey = await getRapidApiKey();
   if (!apiKey) {
     return { results: [], error: 'No RapidAPI key configured. Add it in Settings.' };
   }
@@ -148,7 +145,7 @@ export async function discoverInfluencers(
     results.push(...tt);
   }
 
-  markAlreadyImported(results);
+  await markAlreadyImported(results);
   return { results };
 }
 
@@ -159,11 +156,10 @@ export async function importDiscoveredInfluencer(
 ): Promise<{ id: string; created: boolean }> {
   const { default: fetch } = await import('node-fetch');
   const { v4: uuidv4 } = await import('uuid');
-  const db = getDb();
-  const apiKey = getRapidApiKey();
+  const apiKey = await getRapidApiKey();
 
   const col = platform === 'instagram' ? 'ig_handle' : 'tiktok_handle';
-  const existing = db.prepare(`SELECT id FROM influencers WHERE ${col} = ? AND is_archived = 0`).get(handle) as { id: string } | undefined;
+  const existing = await db.get(`SELECT id FROM influencers WHERE ${col} = ? AND is_archived = 0`, [handle]) as { id: string } | undefined;
 
   const profileData: Record<string, unknown> = {
     [col]: handle,
@@ -210,9 +206,7 @@ export async function importDiscoveredInfluencer(
     if (fields.length > 0) {
       const set = fields.map(f => `${f} = ?`).join(', ');
       const vals = fields.map(f => profileData[f]);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      db.prepare(`UPDATE influencers SET ${set}, updated_at = datetime('now') WHERE id = ?`)
-        .run(...vals as any[], existing.id);
+      await db.run(`UPDATE influencers SET ${set}, updated_at = NOW() WHERE id = ?`, [...vals, existing.id]);
     }
     return { id: existing.id, created: false };
   }
@@ -227,8 +221,7 @@ export async function importDiscoveredInfluencer(
   const fields = Object.keys(profileData);
   const placeholders = fields.map(() => '?').join(', ');
   const vals = fields.map(f => profileData[f]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db.prepare(`INSERT INTO influencers (${fields.join(', ')}) VALUES (${placeholders})`).run(...vals as any[]);
+  await db.run(`INSERT INTO influencers (${fields.join(', ')}) VALUES (${placeholders})`, vals);
 
   return { id, created: true };
 }

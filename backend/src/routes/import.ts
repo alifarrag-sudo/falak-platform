@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
-import path from 'path';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 import { previewImport, processImport } from '../services/importService';
 
 const router = Router();
@@ -55,18 +54,16 @@ router.post('/process', async (req: Request, res: Response) => {
 });
 
 // GET /api/import/sessions - list import history
-router.get('/sessions', (_req: Request, res: Response) => {
-  const db = getDb();
-  const sessions = db.prepare(`
+router.get('/sessions', async (_req: Request, res: Response) => {
+  const sessions = await db.all(`
     SELECT * FROM import_sessions ORDER BY created_at DESC LIMIT 50
-  `).all();
+  `, []);
   return res.json(sessions);
 });
 
 // GET /api/import/sessions/:id
-router.get('/sessions/:id', (req: Request, res: Response) => {
-  const db = getDb();
-  const session = db.prepare('SELECT * FROM import_sessions WHERE id = ?').get(req.params.id);
+router.get('/sessions/:id', async (req: Request, res: Response) => {
+  const session = await db.get('SELECT * FROM import_sessions WHERE id = ?', [req.params.id]);
   if (!session) return res.status(404).json({ error: 'Session not found' });
   return res.json(session);
 });

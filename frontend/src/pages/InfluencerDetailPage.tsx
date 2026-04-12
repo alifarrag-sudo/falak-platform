@@ -34,7 +34,7 @@ export default function InfluencerDetailPage() {
   const [showQR, setShowQR] = useState(false);
   const [offerForm, setOfferForm] = useState({
     title: '', brief: '', platform: '', deliverables: '',
-    rate: '', currency: 'EGP', deadline: '', agency_notes: '',
+    rate: '', currency: 'SAR', deadline: '', agency_notes: '',
   });
 
   const { data: inf, isLoading } = useQuery({

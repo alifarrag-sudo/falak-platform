@@ -9,10 +9,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { createHash } from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 
 const router = Router();
-type P = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fan_secret_change_in_production';
 
@@ -60,19 +59,18 @@ router.post('/auth/register', async (req, res) => {
   if (!email?.trim() || !password?.trim()) {
     return res.status(400).json({ error: 'Email and password required' });
   }
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM fan_users WHERE email = ?').get(email.trim().toLowerCase() as P);
+  const existing = await db.get('SELECT id FROM fan_users WHERE email = ?', [email.trim().toLowerCase()]);
   if (existing) return res.status(400).json({ error: 'Email already registered' });
 
   const id = uuidv4();
   const hash = await bcrypt.hash(String(password), 10);
-  db.prepare(`
+  await db.run(`
     INSERT INTO fan_users (id, email, password, name, username)
     VALUES (?, ?, ?, ?, ?)
-  `).run(id, email.trim().toLowerCase(), hash, name?.trim() || null, username?.trim() || null);
+  `, [id, email.trim().toLowerCase(), hash, name?.trim() || null, username?.trim() || null]);
 
   const token = jwt.sign({ id, email: email.trim().toLowerCase(), name: name?.trim(), type: 'fan' }, JWT_SECRET, { expiresIn: '30d' });
-  const user = db.prepare('SELECT id, email, name, username, created_at FROM fan_users WHERE id = ?').get(id as P);
+  const user = await db.get('SELECT id, email, name, username, created_at FROM fan_users WHERE id = ?', [id]);
   res.status(201).json({ token, user });
 });
 
@@ -82,8 +80,7 @@ router.post('/auth/login', async (req, res) => {
   if (!email?.trim() || !password?.trim()) {
     return res.status(400).json({ error: 'Email and password required' });
   }
-  const db = getDb();
-  const user = db.prepare('SELECT * FROM fan_users WHERE email = ?').get(email.trim().toLowerCase() as P) as Record<string, unknown> | undefined;
+  const user = await db.get('SELECT * FROM fan_users WHERE email = ?', [email.trim().toLowerCase()]) as Record<string, unknown> | undefined;
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
   const valid = await verifyPassword(String(password), String(user.password));
@@ -93,7 +90,7 @@ router.post('/auth/login', async (req, res) => {
   if (!String(user.password).startsWith('$2')) {
     try {
       const newHash = await bcrypt.hash(String(password), 10);
-      db.prepare('UPDATE fan_users SET password = ? WHERE id = ?').run(newHash, user.id as P);
+      await db.run('UPDATE fan_users SET password = ? WHERE id = ?', [newHash, user.id]);
     } catch { /* non-critical, will retry next login */ }
   }
 
@@ -103,34 +100,29 @@ router.post('/auth/login', async (req, res) => {
 });
 
 // GET /api/fan/auth/me
-router.get('/auth/me', requireFanAuth, (req: FanRequest, res) => {
-  const db = getDb();
-  const user = db.prepare('SELECT id, email, name, username, bio, country, avatar_url, created_at FROM fan_users WHERE id = ?')
-    .get(req.fanUser!.id as P);
+router.get('/auth/me', requireFanAuth, async (req: FanRequest, res) => {
+  const user = await db.get('SELECT id, email, name, username, bio, country, avatar_url, created_at FROM fan_users WHERE id = ?', [req.fanUser!.id]);
   res.json(user);
 });
 
 // PUT /api/fan/auth/me — update fan profile
-router.put('/auth/me', requireFanAuth, (req: FanRequest, res) => {
+router.put('/auth/me', requireFanAuth, async (req: FanRequest, res) => {
   const { name, username, bio, country } = req.body;
-  const db = getDb();
-  db.prepare(`UPDATE fan_users SET name = ?, username = ?, bio = ?, country = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(name || null, username || null, bio || null, country || null, req.fanUser!.id as P);
-  const user = db.prepare('SELECT id, email, name, username, bio, country, avatar_url, created_at FROM fan_users WHERE id = ?')
-    .get(req.fanUser!.id as P);
+  await db.run(`UPDATE fan_users SET name = ?, username = ?, bio = ?, country = ?, updated_at = NOW() WHERE id = ?`,
+    [name || null, username || null, bio || null, country || null, req.fanUser!.id]);
+  const user = await db.get('SELECT id, email, name, username, bio, country, avatar_url, created_at FROM fan_users WHERE id = ?', [req.fanUser!.id]);
   res.json(user);
 });
 
 // ── Public Influencer Browse ───────────────────────────────────────────────────
 
 // GET /api/fan/influencers — browse public influencer profiles
-router.get('/influencers', (req, res) => {
-  const db = getDb();
+router.get('/influencers', async (req, res) => {
   const { search, platform, category, page = '1', limit = '20' } = req.query;
   const offset = (Number(page) - 1) * Number(limit);
 
   let where = "WHERE i.fan_requests_enabled = 1 OR i.fan_requests_enabled IS NULL";
-  const params: P[] = [];
+  const params: unknown[] = [];
 
   if (search) {
     where += ' AND (i.name LIKE ? OR i.handle LIKE ? OR i.bio LIKE ?)';
@@ -140,7 +132,7 @@ router.get('/influencers', (req, res) => {
   if (platform) { where += ' AND i.platform = ?'; params.push(platform); }
   if (category) { where += ' AND i.category = ?'; params.push(category); }
 
-  const influencers = db.prepare(`
+  const influencers = await db.all(`
     SELECT i.id, i.name, i.handle, i.platform, i.category, i.bio,
            i.followers_count, i.engagement_rate, i.profile_image_url, i.city, i.country,
            i.fan_shoutout_price, i.fan_video_price, i.fan_photo_price,
@@ -150,16 +142,15 @@ router.get('/influencers', (req, res) => {
     ${where}
     ORDER BY i.followers_count DESC NULLS LAST
     LIMIT ? OFFSET ?
-  `).all(...params, Number(limit) as P, offset as P);
+  `, [...params, Number(limit), offset]);
 
-  const total = (db.prepare(`SELECT COUNT(*) as n FROM influencers i ${where}`).get(...params) as { n: number }).n;
-  res.json({ influencers, total, page: Number(page), limit: Number(limit) });
+  const totalRow = await db.get(`SELECT COUNT(*) as n FROM influencers i ${where}`, params) as { n: number };
+  res.json({ influencers, total: totalRow.n, page: Number(page), limit: Number(limit) });
 });
 
 // GET /api/fan/influencers/:id — public influencer profile
-router.get('/influencers/:id', (req, res) => {
-  const db = getDb();
-  const influencer = db.prepare(`
+router.get('/influencers/:id', async (req, res) => {
+  const influencer = await db.get(`
     SELECT i.id, i.name, i.handle, i.platform, i.category, i.bio,
            i.followers_count, i.following_count, i.engagement_rate,
            i.profile_image_url, i.city, i.country, i.profile_url,
@@ -171,7 +162,7 @@ router.get('/influencers/:id', (req, res) => {
             FROM fan_requests fr WHERE fr.influencer_id = i.id) AS acceptance_rate
     FROM influencers i
     WHERE i.id = ?
-  `).get(req.params.id as P);
+  `, [req.params.id]);
 
   if (!influencer) return res.status(404).json({ error: 'Influencer not found' });
   res.json(influencer);
@@ -180,33 +171,31 @@ router.get('/influencers/:id', (req, res) => {
 // ── Fan Requests ──────────────────────────────────────────────────────────────
 
 // GET /api/fan/requests — fan's own requests
-router.get('/requests', requireFanAuth, (req: FanRequest, res) => {
-  const db = getDb();
-  const requests = db.prepare(`
+router.get('/requests', requireFanAuth, async (req: FanRequest, res) => {
+  const requests = await db.all(`
     SELECT fr.*, i.name AS influencer_name, i.handle AS influencer_handle, i.platform AS influencer_platform
     FROM fan_requests fr
     JOIN influencers i ON i.id = fr.influencer_id
     WHERE fr.fan_user_id = ?
     ORDER BY fr.submitted_at DESC
-  `).all(req.fanUser!.id as P);
+  `, [req.fanUser!.id]);
   res.json(requests);
 });
 
 // GET /api/fan/requests/:id — single request detail
-router.get('/requests/:id', requireFanAuth, (req: FanRequest, res) => {
-  const db = getDb();
-  const request = db.prepare(`
+router.get('/requests/:id', requireFanAuth, async (req: FanRequest, res) => {
+  const request = await db.get(`
     SELECT fr.*, i.name AS influencer_name, i.handle AS influencer_handle, i.platform AS influencer_platform
     FROM fan_requests fr
     JOIN influencers i ON i.id = fr.influencer_id
     WHERE fr.id = ? AND fr.fan_user_id = ?
-  `).get(req.params.id as P, req.fanUser!.id as P);
+  `, [req.params.id, req.fanUser!.id]);
   if (!request) return res.status(404).json({ error: 'Request not found' });
   res.json(request);
 });
 
 // POST /api/fan/requests — submit a new fan request
-router.post('/requests', requireFanAuth, (req: FanRequest, res) => {
+router.post('/requests', requireFanAuth, async (req: FanRequest, res) => {
   const { influencer_id, request_type, title, message, budget, currency, platform, deadline } = req.body;
 
   if (!influencer_id || !request_type || !title?.trim()) {
@@ -216,39 +205,36 @@ router.post('/requests', requireFanAuth, (req: FanRequest, res) => {
     return res.status(400).json({ error: `request_type must be one of: ${REQUEST_TYPES.join(', ')}` });
   }
 
-  const db = getDb();
-  const influencer = db.prepare('SELECT id FROM influencers WHERE id = ?').get(influencer_id as P);
+  const influencer = await db.get('SELECT id FROM influencers WHERE id = ?', [influencer_id]);
   if (!influencer) return res.status(404).json({ error: 'Influencer not found' });
 
   const id = uuidv4();
-  db.prepare(`
+  await db.run(`
     INSERT INTO fan_requests (id, fan_user_id, influencer_id, request_type, title, message, budget, currency, platform, deadline)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, req.fanUser!.id as P, influencer_id, request_type, title.trim(), message?.trim() || null,
-    budget ? Number(budget) : null, currency || 'SAR', platform || null, deadline || null);
+  `, [id, req.fanUser!.id, influencer_id, request_type, title.trim(), message?.trim() || null,
+    budget ? Number(budget) : null, currency || 'SAR', platform || null, deadline || null]);
 
-  const request = db.prepare('SELECT * FROM fan_requests WHERE id = ?').get(id as P);
+  const request = await db.get('SELECT * FROM fan_requests WHERE id = ?', [id]);
   res.status(201).json(request);
 });
 
 // PUT /api/fan/requests/:id/cancel — fan cancels their request
-router.put('/requests/:id/cancel', requireFanAuth, (req: FanRequest, res) => {
-  const db = getDb();
-  const request = db.prepare('SELECT * FROM fan_requests WHERE id = ? AND fan_user_id = ?')
-    .get(req.params.id as P, req.fanUser!.id as P) as Record<string, unknown> | undefined;
+router.put('/requests/:id/cancel', requireFanAuth, async (req: FanRequest, res) => {
+  const request = await db.get('SELECT * FROM fan_requests WHERE id = ? AND fan_user_id = ?',
+    [req.params.id, req.fanUser!.id]) as Record<string, unknown> | undefined;
   if (!request) return res.status(404).json({ error: 'Request not found' });
   if (!['pending', 'accepted'].includes(String(request.status))) {
     return res.status(400).json({ error: 'Cannot cancel a fulfilled or declined request' });
   }
-  db.prepare(`UPDATE fan_requests SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?`).run(req.params.id as P);
-  const updated = db.prepare('SELECT * FROM fan_requests WHERE id = ?').get(req.params.id as P);
+  await db.run(`UPDATE fan_requests SET status = 'cancelled', updated_at = NOW() WHERE id = ?`, [req.params.id]);
+  const updated = await db.get('SELECT * FROM fan_requests WHERE id = ?', [req.params.id]);
   res.json(updated);
 });
 
 // GET /api/fan/delivery/:token — public shareable delivery page (no auth required)
-router.get('/delivery/:token', (req, res) => {
-  const db = getDb();
-  const row = db.prepare(`
+router.get('/delivery/:token', async (req, res) => {
+  const row = await db.get(`
     SELECT
       fr.id, fr.title, fr.request_type, fr.message,
       fr.delivery_url, fr.delivery_note, fr.fulfilled_at, fr.share_token,
@@ -257,7 +243,7 @@ router.get('/delivery/:token', (req, res) => {
     FROM fan_requests fr
     JOIN influencers i ON fr.influencer_id = i.id
     WHERE fr.share_token = ? AND fr.status = 'fulfilled'
-  `).get(req.params.token as P) as Record<string, unknown> | undefined;
+  `, [req.params.token]) as Record<string, unknown> | undefined;
 
   if (!row) return res.status(404).json({ error: 'Delivery not found or not yet fulfilled' });
   return res.json({ delivery: row });

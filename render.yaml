@@ -25,3 +25,7 @@ services:
         value: https://falak-platform.onrender.com
       - key: SEED_DEMO
         value: "true"
+      - key: LIVE_VIEW_MODE
+        value: "false"   # Set to "true" to hide demo data platform-wide
+      - key: DATABASE_URL
+        sync: false   # Set manually in Render dashboard — paste Neon connection string

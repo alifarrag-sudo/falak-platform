@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search, LayoutGrid, List, Plus, Trash2, Megaphone, RefreshCw, ChevronLeft, ChevronRight, Download, Bookmark, BookmarkCheck, X as XIcon, UserPlus, Mail, Compass } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -53,6 +54,8 @@ const PLATFORMS = ['instagram', 'tiktok', 'youtube', 'snapchat', 'twitter'] as c
 export default function InfluencersPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { isRole } = useAuth();
+  const isViewer = isRole('viewer');
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -213,11 +216,13 @@ export default function InfluencersPage() {
           >
             <Mail className="w-4 h-4" /> Contacts
           </button>
-          <button onClick={() => setShowAddModal(true)} className="btn-primary">
-            <Plus className="w-4 h-4" /> Add Influencer
-          </button>
+          {!isViewer && (
+            <button onClick={() => setShowAddModal(true)} className="btn-primary">
+              <Plus className="w-4 h-4" /> Add Influencer
+            </button>
+          )}
 
-          {selectedIds.size > 0 && (
+          {!isViewer && selectedIds.size > 0 && (
             <>
               <button onClick={handleBulkEnrich} className="btn-secondary">
                 <RefreshCw className="w-4 h-4" /> Enrich ({selectedIds.size})

@@ -15,7 +15,7 @@ const STATUS_BADGE: Record<string, string> = {
   COLLECTED: 'bg-emerald-900/30 text-emerald-300 border border-emerald-700/30',
 };
 
-function fmt(n: number, currency = 'EGP') {
+function fmt(n: number, currency = 'SAR') {
   return new Intl.NumberFormat('en-EG', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
 }
 
@@ -209,8 +209,8 @@ export default function RevenuePage() {
                   <tr key={String(c.id)} className="border-b border-surface-border/50 hover:bg-surface-overlay/30 transition-colors">
                     <td className="px-4 py-3 text-gray-300 max-w-[180px] truncate">{String(c.offer_title || c.reference_id || '—')}</td>
                     <td className="px-4 py-3 text-gray-400">{String(c.influencer_name || c.ig_handle || '—')}</td>
-                    <td className="px-4 py-3 text-right text-gray-300">{fmt(Number(c.gross_amount) || 0, String(c.currency || 'EGP'))}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-emerald-400">{fmt(Number(c.commission_amount) || 0, String(c.currency || 'EGP'))}</td>
+                    <td className="px-4 py-3 text-right text-gray-300">{fmt(Number(c.gross_amount) || 0, String(c.currency || 'SAR'))}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-emerald-400">{fmt(Number(c.commission_amount) || 0, String(c.currency || 'SAR'))}</td>
                     <td className="px-4 py-3 text-right text-gray-500">{Number(c.commission_rate) || 0}%</td>
                     <td className="px-4 py-3">
                       <span className={cn('text-xs px-2 py-0.5 rounded-full', STATUS_BADGE[String(c.status)] || STATUS_BADGE.PENDING)}>

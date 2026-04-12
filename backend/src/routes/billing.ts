@@ -8,16 +8,15 @@
 import { Router, Request, Response } from 'express';
 import Stripe from 'stripe';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { getDb } from '../db/schema';
+import { db } from '../db/connection';
 
 const router = Router();
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type P = any;
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error('STRIPE_SECRET_KEY not configured in .env');
-  return new Stripe(key, { apiVersion: '2024-11-20.acacia' as P });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new Stripe(key, { apiVersion: '2024-11-20.acacia' as any });
 }
 
 const PRICE_IDS: Record<string, string | undefined> = {
@@ -26,28 +25,10 @@ const PRICE_IDS: Record<string, string | undefined> = {
   enterprise: process.env.STRIPE_PRICE_ENTERPRISE,
 };
 
-// Add Stripe columns to agencies table (safe to run repeatedly)
-function migrateAgencies(): void {
-  const db = getDb();
-  const cols: [string, string][] = [
-    ['stripe_customer_id',              'TEXT'],
-    ['subscription_status',             "TEXT DEFAULT 'trial'"],
-    ['subscription_tier',               "TEXT DEFAULT 'starter'"],
-    ['subscription_current_period_end', 'TEXT'],
-  ];
-  for (const [col, def] of cols) {
-    try { db.exec(`ALTER TABLE agencies ADD COLUMN ${col} ${def}`); } catch { /* exists */ }
-  }
-}
-migrateAgencies();
-
-function getAgencyForUser(userId: string): Record<string, unknown> | null {
-  const db = getDb();
-  const user = db.prepare('SELECT linked_agency_id FROM users WHERE id = ?')
-    .get(userId as P) as { linked_agency_id: string | null } | undefined;
+async function getAgencyForUser(userId: string): Promise<Record<string, unknown> | null> {
+  const user = await db.get('SELECT linked_agency_id FROM users WHERE id = ?', [userId]) as { linked_agency_id: string | null } | undefined;
   if (!user?.linked_agency_id) return null;
-  return db.prepare('SELECT * FROM agencies WHERE id = ?')
-    .get(user.linked_agency_id as P) as Record<string, unknown> | null;
+  return await db.get('SELECT * FROM agencies WHERE id = ?', [user.linked_agency_id]) as Record<string, unknown> | null;
 }
 
 // ── POST /api/billing/create-checkout ─────────────────────────────────────────
@@ -63,9 +44,8 @@ router.post('/create-checkout', requireAuth('agency', 'platform_admin'), async (
     }
 
     const stripe = getStripe();
-    const db = getDb();
     const userId = (req.user as Record<string, unknown>).id as string;
-    const agency = getAgencyForUser(userId);
+    const agency = await getAgencyForUser(userId);
     if (!agency) { res.status(404).json({ error: 'No agency linked to this account' }); return; }
 
     // Create or reuse Stripe customer
@@ -77,8 +57,7 @@ router.post('/create-checkout', requireAuth('agency', 'platform_admin'), async (
         metadata: { agency_id: String(agency.id) },
       });
       customerId = customer.id;
-      db.prepare('UPDATE agencies SET stripe_customer_id = ? WHERE id = ?')
-        .run(customerId as P, agency.id as P);
+      await db.run('UPDATE agencies SET stripe_customer_id = ? WHERE id = ?', [customerId, agency.id]);
     }
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -102,7 +81,7 @@ router.post('/portal', requireAuth('agency', 'platform_admin'), async (req: Auth
   try {
     const stripe = getStripe();
     const userId = (req.user as Record<string, unknown>).id as string;
-    const agency = getAgencyForUser(userId);
+    const agency = await getAgencyForUser(userId);
     if (!agency) { res.status(404).json({ error: 'No agency linked to this account' }); return; }
     if (!agency.stripe_customer_id) {
       res.status(400).json({ error: 'No subscription found. Please subscribe to a plan first.' }); return;
@@ -138,7 +117,6 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     res.status(400).json({ error: `Webhook signature failed: ${(err as Error).message}` }); return;
   }
 
-  const db = getDb();
   try {
     switch (event.type) {
       case 'customer.subscription.created':
@@ -148,34 +126,30 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
         const periodEnd = sub.current_period_end
           ? new Date(sub.current_period_end * 1000).toISOString()
           : null;
-        db.prepare(`UPDATE agencies SET subscription_status = ?, subscription_tier = ?,
-          subscription_current_period_end = ? WHERE stripe_customer_id = ?`).run(
-          status as P,
-          ((sub.metadata?.plan as string) || 'starter') as P,
-          periodEnd as P,
-          (sub.customer as string) as P
-        );
+        await db.run(`UPDATE agencies SET subscription_status = ?, subscription_tier = ?,
+          subscription_current_period_end = ? WHERE stripe_customer_id = ?`,
+          [status, (sub.metadata?.plan as string) || 'starter', periodEnd, sub.customer as string]);
         break;
       }
       case 'customer.subscription.deleted': {
         const sub = event.data.object as Stripe.Subscription;
-        db.prepare(`UPDATE agencies SET subscription_status = 'cancelled' WHERE stripe_customer_id = ?`)
-          .run((sub.customer as string) as P);
+        await db.run(`UPDATE agencies SET subscription_status = 'cancelled' WHERE stripe_customer_id = ?`,
+          [sub.customer as string]);
         break;
       }
       case 'invoice.payment_succeeded': {
         const inv = event.data.object as Stripe.Invoice & { subscription?: string };
         if (inv.subscription) {
-          db.prepare(`UPDATE agencies SET subscription_status = 'active' WHERE stripe_customer_id = ?`)
-            .run((inv.customer as string) as P);
+          await db.run(`UPDATE agencies SET subscription_status = 'active' WHERE stripe_customer_id = ?`,
+            [inv.customer as string]);
         }
         break;
       }
       case 'invoice.payment_failed': {
         const inv = event.data.object as Stripe.Invoice & { subscription?: string };
         if (inv.subscription) {
-          db.prepare(`UPDATE agencies SET subscription_status = 'past_due' WHERE stripe_customer_id = ?`)
-            .run((inv.customer as string) as P);
+          await db.run(`UPDATE agencies SET subscription_status = 'past_due' WHERE stripe_customer_id = ?`,
+            [inv.customer as string]);
         }
         break;
       }
@@ -191,7 +165,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
 router.get('/status', requireAuth('agency', 'platform_admin'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = (req.user as Record<string, unknown>).id as string;
-    const agency = getAgencyForUser(userId);
+    const agency = await getAgencyForUser(userId);
     if (!agency) { res.status(404).json({ error: 'No agency linked to this account' }); return; }
 
     res.json({

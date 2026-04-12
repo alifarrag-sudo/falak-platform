@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Plus, Megaphone, Trash2, Copy, Eye, Download } from 'lucide-react';
@@ -13,6 +14,8 @@ const STATUS_OPTIONS = ['draft', 'sent', 'approved', 'active', 'completed'];
 
 export default function CampaignsPage() {
   const qc = useQueryClient();
+  const { isRole } = useAuth();
+  const isViewer = isRole('viewer');
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
     name: '', client_name: '', start_date: '', end_date: '',
@@ -89,9 +92,11 @@ export default function CampaignsPage() {
           >
             <Download className="w-4 h-4" /> Export
           </button>
-          <button onClick={() => setShowCreate(true)} className="btn-primary">
-            <Plus className="w-4 h-4" /> New Campaign
-          </button>
+          {!isViewer && (
+            <button onClick={() => setShowCreate(true)} className="btn-primary">
+              <Plus className="w-4 h-4" /> New Campaign
+            </button>
+          )}
         </div>
       </div>
 
@@ -111,11 +116,11 @@ export default function CampaignsPage() {
           icon={Megaphone}
           title="No campaigns yet"
           description="Create your first campaign to start building influencer proposals."
-          action={
+          action={!isViewer ? (
             <button onClick={() => setShowCreate(true)} className="btn-primary">
               <Plus className="w-4 h-4" /> New Campaign
             </button>
-          }
+          ) : undefined}
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -165,20 +170,24 @@ export default function CampaignsPage() {
                 <Link to={`/campaigns/${c.id}`} className="btn-primary btn-sm flex-1 justify-center">
                   <Eye className="w-3.5 h-3.5" /> Open
                 </Link>
-                <button
-                  onClick={() => duplicateMutation.mutate(c)}
-                  disabled={duplicateMutation.isPending}
-                  className="btn-ghost btn-sm text-gray-400 hover:text-white"
-                  title="Duplicate campaign"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => deleteMutation.mutate(c.id)}
-                  className="btn-ghost btn-sm text-red-400 hover:bg-red-900/20"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                {!isViewer && (
+                  <>
+                    <button
+                      onClick={() => duplicateMutation.mutate(c)}
+                      disabled={duplicateMutation.isPending}
+                      className="btn-ghost btn-sm text-gray-400 hover:text-white"
+                      title="Duplicate campaign"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => deleteMutation.mutate(c.id)}
+                      className="btn-ghost btn-sm text-red-400 hover:bg-red-900/20"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}

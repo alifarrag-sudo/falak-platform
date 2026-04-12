@@ -5,21 +5,18 @@
  */
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { getDb } from '../db/schema';
-
-type P = any;
+import { db } from '../db/connection';
 
 const router = Router();
 
 // ── Shadow Profiles ──────────────────────────────────────────────────────────
 
 /** GET /api/outreach/shadows — list shadow profiles with outreach counts */
-router.get('/shadows', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.get('/shadows', requireAuth('platform_admin', 'agency'), async (req, res) => {
   const { platform, status, search, page = '1', limit = '50' } = req.query;
 
   const conditions: string[] = [];
-  const params: P[] = [];
+  const params: unknown[] = [];
 
   if (platform) { conditions.push('sp.platform = ?'); params.push(platform); }
   if (status)   { conditions.push('sp.claim_status = ?'); params.push(status); }
@@ -32,9 +29,10 @@ router.get('/shadows', requireAuth('platform_admin', 'agency'), (req, res) => {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const offset = (Number(page) - 1) * Number(limit);
 
-  const total = (db.prepare(`SELECT COUNT(*) as n FROM shadow_profiles sp ${where}`).get(...params) as { n: number }).n;
+  const countRow = await db.get(`SELECT COUNT(*) as n FROM shadow_profiles sp ${where}`, params) as { n: number };
+  const total = countRow.n;
 
-  const rows = db.prepare(`
+  const rows = await db.all(`
     SELECT sp.*,
       (SELECT COUNT(*) FROM outreach_log ol WHERE ol.shadow_profile_id = sp.id) as outreach_count,
       (SELECT COUNT(*) FROM outreach_log ol WHERE ol.shadow_profile_id = sp.id AND ol.response IS NOT NULL) as response_count
@@ -42,14 +40,13 @@ router.get('/shadows', requireAuth('platform_admin', 'agency'), (req, res) => {
     ${where}
     ORDER BY sp.created_at DESC
     LIMIT ? OFFSET ?
-  `).all(...params, Number(limit), offset) as Record<string, unknown>[];
+  `, [...params, Number(limit), offset]) as Record<string, unknown>[];
 
   res.json({ profiles: rows, total, page: Number(page), limit: Number(limit) });
 });
 
 /** POST /api/outreach/shadows — create a shadow profile */
-router.post('/shadows', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.post('/shadows', requireAuth('platform_admin', 'agency'), async (req, res) => {
   const { name, handle, platform, follower_count, category, country, profile_url, email } = req.body;
 
   if (!handle || !platform) {
@@ -59,17 +56,16 @@ router.post('/shadows', requireAuth('platform_admin', 'agency'), (req, res) => {
   const id = crypto.randomUUID();
   const claimToken = crypto.randomUUID();
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO shadow_profiles (id, name, handle, platform, follower_count, category, country, profile_url, email, claim_token)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name || null, handle, platform, follower_count || 0, category || null, country || null, profile_url || null, email || null, claimToken);
+  `, [id, name || null, handle, platform, follower_count || 0, category || null, country || null, profile_url || null, email || null, claimToken]);
 
-  res.status(201).json(db.prepare('SELECT * FROM shadow_profiles WHERE id = ?').get(id));
+  res.status(201).json(await db.get('SELECT * FROM shadow_profiles WHERE id = ?', [id]));
 });
 
 /** PUT /api/outreach/shadows/:id — update a shadow profile */
-router.put('/shadows/:id', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.put('/shadows/:id', requireAuth('platform_admin', 'agency'), async (req, res) => {
   const { id } = req.params;
   const allowed: Record<string, unknown> = {};
   for (const key of ['name', 'handle', 'platform', 'follower_count', 'category', 'country', 'profile_url', 'email', 'claim_status']) {
@@ -79,93 +75,74 @@ router.put('/shadows/:id', requireAuth('platform_admin', 'agency'), (req, res) =
   if (!Object.keys(allowed).length) return res.status(400).json({ error: 'No fields to update' });
 
   const sets = Object.keys(allowed).map(k => `${k} = ?`).join(', ');
-  db.prepare(`UPDATE shadow_profiles SET ${sets} WHERE id = ?`).run(...(Object.values(allowed) as P[]), id);
-  res.json(db.prepare('SELECT * FROM shadow_profiles WHERE id = ?').get(id));
+  await db.run(`UPDATE shadow_profiles SET ${sets} WHERE id = ?`, [...Object.values(allowed), id]);
+  res.json(await db.get('SELECT * FROM shadow_profiles WHERE id = ?', [id]));
 });
 
 /** DELETE /api/outreach/shadows/:id */
-router.delete('/shadows/:id', requireAuth('platform_admin'), (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM outreach_log WHERE shadow_profile_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM shadow_profiles WHERE id = ?').run(req.params.id);
+router.delete('/shadows/:id', requireAuth('platform_admin'), async (req, res) => {
+  await db.run('DELETE FROM outreach_log WHERE shadow_profile_id = ?', [req.params.id]);
+  await db.run('DELETE FROM shadow_profiles WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 });
 
 // ── Outreach Log ─────────────────────────────────────────────────────────────
 
 /** GET /api/outreach/log/:shadowId — history for a shadow profile */
-router.get('/log/:shadowId', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.get('/log/:shadowId', requireAuth('platform_admin', 'agency'), async (req, res) => {
   res.json(
-    db.prepare('SELECT * FROM outreach_log WHERE shadow_profile_id = ? ORDER BY sent_at DESC')
-      .all(req.params.shadowId)
+    await db.all('SELECT * FROM outreach_log WHERE shadow_profile_id = ? ORDER BY sent_at DESC', [req.params.shadowId])
   );
 });
 
 /** POST /api/outreach/log/:shadowId — log an outreach attempt */
-router.post('/log/:shadowId', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.post('/log/:shadowId', requireAuth('platform_admin', 'agency'), async (req, res) => {
   const { shadowId } = req.params;
   const { channel = 'email', message_sent } = req.body;
 
-  const profile = db.prepare('SELECT id, contact_attempts FROM shadow_profiles WHERE id = ?')
-    .get(shadowId) as { id: string; contact_attempts: number } | undefined;
+  const profile = await db.get('SELECT id, contact_attempts FROM shadow_profiles WHERE id = ?', [shadowId]) as { id: string; contact_attempts: number } | undefined;
   if (!profile) return res.status(404).json({ error: 'Shadow profile not found' });
 
   const id = crypto.randomUUID();
-  db.prepare('INSERT INTO outreach_log (id, shadow_profile_id, channel, message_sent) VALUES (?, ?, ?, ?)')
-    .run(id, shadowId, channel, message_sent || null);
+  await db.run('INSERT INTO outreach_log (id, shadow_profile_id, channel, message_sent) VALUES (?, ?, ?, ?)', [id, shadowId, channel, message_sent || null]);
 
-  db.prepare(`UPDATE shadow_profiles SET contact_attempts = ?, last_contacted_at = datetime('now') WHERE id = ?`)
-    .run(profile.contact_attempts + 1, shadowId);
+  await db.run(`UPDATE shadow_profiles SET contact_attempts = ?, last_contacted_at = NOW() WHERE id = ?`, [profile.contact_attempts + 1, shadowId]);
 
-  res.status(201).json(db.prepare('SELECT * FROM outreach_log WHERE id = ?').get(id));
+  res.status(201).json(await db.get('SELECT * FROM outreach_log WHERE id = ?', [id]));
 });
 
 /** PUT /api/outreach/log-entry/:logId — record a response */
-router.put('/log-entry/:logId', requireAuth('platform_admin', 'agency'), (req, res) => {
-  const db = getDb();
+router.put('/log-entry/:logId', requireAuth('platform_admin', 'agency'), async (req, res) => {
   const { response } = req.body;
 
-  db.prepare(`UPDATE outreach_log SET response = ?, responded_at = datetime('now') WHERE id = ?`)
-    .run(response || null, req.params.logId);
+  await db.run(`UPDATE outreach_log SET response = ?, responded_at = NOW() WHERE id = ?`, [response || null, req.params.logId]);
 
   // Auto-promote shadow profile to 'responded' status
-  const entry = db.prepare('SELECT shadow_profile_id FROM outreach_log WHERE id = ?')
-    .get(req.params.logId) as { shadow_profile_id: string } | undefined;
+  const entry = await db.get('SELECT shadow_profile_id FROM outreach_log WHERE id = ?', [req.params.logId]) as { shadow_profile_id: string } | undefined;
   if (entry && response) {
-    db.prepare(`UPDATE shadow_profiles SET claim_status = 'responded' WHERE id = ? AND claim_status = 'unclaimed'`)
-      .run(entry.shadow_profile_id);
+    await db.run(`UPDATE shadow_profiles SET claim_status = 'responded' WHERE id = ? AND claim_status = 'unclaimed'`, [entry.shadow_profile_id]);
   }
 
-  res.json(db.prepare('SELECT * FROM outreach_log WHERE id = ?').get(req.params.logId));
+  res.json(await db.get('SELECT * FROM outreach_log WHERE id = ?', [req.params.logId]));
 });
 
 // ── Stats ────────────────────────────────────────────────────────────────────
 
 /** GET /api/outreach/stats — pipeline funnel */
-router.get('/stats', requireAuth('platform_admin', 'agency'), (_req, res) => {
-  const db = getDb();
-
-  const byStatus = db.prepare(`
+router.get('/stats', requireAuth('platform_admin', 'agency'), async (_req, res) => {
+  const byStatus = await db.all(`
     SELECT claim_status, COUNT(*) as count FROM shadow_profiles GROUP BY claim_status
-  `).all() as Array<{ claim_status: string; count: number }>;
+  `, []) as Array<{ claim_status: string; count: number }>;
 
-  const contacted = (db.prepare(
-    'SELECT COUNT(DISTINCT shadow_profile_id) as n FROM outreach_log'
-  ).get() as { n: number }).n;
+  const contactedRow = await db.get('SELECT COUNT(DISTINCT shadow_profile_id) as n FROM outreach_log', []) as { n: number };
+  const contacted = contactedRow.n;
 
-  const responded = (db.prepare(
-    'SELECT COUNT(DISTINCT shadow_profile_id) as n FROM outreach_log WHERE response IS NOT NULL'
-  ).get() as { n: number }).n;
+  const respondedRow = await db.get('SELECT COUNT(DISTINCT shadow_profile_id) as n FROM outreach_log WHERE response IS NOT NULL', []) as { n: number };
+  const responded = respondedRow.n;
 
-  const byPlatform = db.prepare(
-    'SELECT platform, COUNT(*) as count FROM shadow_profiles GROUP BY platform ORDER BY count DESC'
-  ).all() as Array<{ platform: string; count: number }>;
+  const byPlatform = await db.all('SELECT platform, COUNT(*) as count FROM shadow_profiles GROUP BY platform ORDER BY count DESC', []) as Array<{ platform: string; count: number }>;
 
-  const byChannel = db.prepare(
-    'SELECT channel, COUNT(*) as count FROM outreach_log GROUP BY channel ORDER BY count DESC'
-  ).all() as Array<{ channel: string; count: number }>;
+  const byChannel = await db.all('SELECT channel, COUNT(*) as count FROM outreach_log GROUP BY channel ORDER BY count DESC', []) as Array<{ channel: string; count: number }>;
 
   const statusMap = Object.fromEntries(byStatus.map(r => [r.claim_status, r.count]));
 
