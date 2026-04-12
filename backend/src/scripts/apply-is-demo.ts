@@ -25,6 +25,11 @@ DO $$ BEGIN ALTER TABLE campaigns     ADD COLUMN is_demo INTEGER DEFAULT 0; EXCE
 DO $$ BEGIN ALTER TABLE portal_offers ADD COLUMN is_demo INTEGER DEFAULT 0; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE portal_users  ADD COLUMN is_demo INTEGER DEFAULT 0; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE fan_users     ADD COLUMN is_demo INTEGER DEFAULT 0; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE users         ADD COLUMN last_login_at TIMESTAMPTZ; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE users         ADD COLUMN linked_influencer_id TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE users         ADD COLUMN linked_agency_id TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE users         ADD COLUMN linked_brand_id TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE portal_users  ADD COLUMN last_login_at TIMESTAMPTZ; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 `;
 
   const client = await pool.connect();
