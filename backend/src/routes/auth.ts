@@ -113,7 +113,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     // Update last login
-    await db.run(`UPDATE users SET last_login_at = NOW() WHERE id = ?`, [user.id]);
+    await db.run(`UPDATE users SET last_login_at = ? WHERE id = ?`, [new Date().toISOString(), user.id]);
 
     // Return user without password hash
     const { password_hash: _, ...safeUser } = user;

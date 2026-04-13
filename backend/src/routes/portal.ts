@@ -95,7 +95,7 @@ router.post('/auth/login', async (req, res) => {
   const valid = await bcrypt.compare(String(password), String(user.password_hash));
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
-  await db.run(`UPDATE portal_users SET last_login_at = NOW() WHERE id = ?`, [user.id]);
+  await db.run(`UPDATE portal_users SET last_login_at = ? WHERE id = ?`, [new Date().toISOString(), user.id]);
 
   const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '30d' });
   const { password_hash, ...safeUser } = user;
@@ -253,7 +253,7 @@ router.get('/auth/oauth/callback/:provider', async (req, res) => {
     ) as Record<string, unknown> | undefined;
 
     if (portalUser) {
-      await db.run(`UPDATE portal_users SET last_login_at = NOW() WHERE id = ?`, [portalUser.id]);
+      await db.run(`UPDATE portal_users SET last_login_at = ? WHERE id = ?`, [new Date().toISOString(), portalUser.id]);
       const token = jwt.sign({ id: portalUser.id }, JWT_SECRET, { expiresIn: '30d' });
       return res.redirect(`${FRONTEND_URL}/portal/login?oauth_token=${token}&oauth_name=${encodeURIComponent(oauth_name)}`);
     }
@@ -299,7 +299,7 @@ router.get('/auth/oauth/callback/:provider', async (req, res) => {
         UPDATE portal_users SET oauth_provider = ?, oauth_id = ?, oauth_name = ?, oauth_picture = ?
         WHERE id = ?
       `, [provider, oauth_id, oauth_name, oauth_picture, emailUser.id]);
-      await db.run(`UPDATE portal_users SET last_login_at = NOW() WHERE id = ?`, [emailUser.id]);
+      await db.run(`UPDATE portal_users SET last_login_at = ? WHERE id = ?`, [new Date().toISOString(), emailUser.id]);
       const token = jwt.sign({ id: emailUser.id }, JWT_SECRET, { expiresIn: '30d' });
       return res.redirect(`${FRONTEND_URL}/portal/login?oauth_token=${token}&oauth_name=${encodeURIComponent(oauth_name)}`);
     }
