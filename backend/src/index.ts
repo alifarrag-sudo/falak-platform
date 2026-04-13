@@ -113,7 +113,7 @@ app.use('/api/live', liveRouter);
 
 // Health check (both paths for compatibility with Railway/Render/ELB)
 const healthHandler = (_req: express.Request, res: express.Response) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), env: process.env.NODE_ENV || 'development', build: '2026-04-12-c' });
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), env: process.env.NODE_ENV || 'development', build: '2026-04-12-d' });
 };
 app.get('/health', healthHandler);
 app.get('/api/health', healthHandler);
