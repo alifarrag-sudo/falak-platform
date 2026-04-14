@@ -18,13 +18,13 @@ import { db } from '../db/connection';
 const ACCOUNTS = [
   {
     email:        'investor@falak.io',
-    password:     'Xk9$mPqR!vNb3wLz',
+    password:     'Falak@Investor2026',
     display_name: 'Investor Access',
     label:        'Investor',
   },
   {
     email:        'partner@falak.io',
-    password:     'Jh7#nYtF@cWs5eKm',
+    password:     'Falak@Partner2026',
     display_name: 'Partner Access',
     label:        'Partner',
   },

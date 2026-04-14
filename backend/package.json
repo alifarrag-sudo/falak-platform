@@ -12,7 +12,7 @@
     "seed:admin": "ts-node-dev --transpile-only src/scripts/seed-admin.ts",
     "seed:demo": "ts-node-dev --transpile-only src/scripts/seed-demo.ts",
     "seed:gcc": "ts-node-dev --transpile-only src/scripts/seed-gcc-demo.ts",
-    "seed:viewers": "ts-node-dev --transpile-only src/scripts/seed-viewer-accounts.ts"
+    "seed:viewers": "node dist/scripts/seed-viewer-accounts.js"
   },
   "dependencies": {
     "@types/nodemailer": "^7.0.11",
