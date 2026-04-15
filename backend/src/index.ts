@@ -32,6 +32,7 @@ import agentRouter from './routes/agent';
 import adnetworkRouter from './routes/adnetwork';
 import outreachRouter from './routes/outreach';
 import liveRouter from './routes/live';
+import webhooksRouter from './routes/webhooks';
 import { initSyncJobs } from './jobs/syncJobs';
 import { startKeepAlive } from './keepalive';
 
@@ -110,6 +111,7 @@ app.use('/api/agent', agentRouter);
 app.use('/api/adnetwork', adnetworkRouter);
 app.use('/api/outreach', outreachRouter);
 app.use('/api/live', liveRouter);
+app.use('/api/webhooks', webhooksRouter);
 
 // Health check (both paths for compatibility with Railway/Render/ELB)
 const healthHandler = (_req: express.Request, res: express.Response) => {

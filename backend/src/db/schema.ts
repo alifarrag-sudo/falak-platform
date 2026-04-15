@@ -1240,5 +1240,19 @@ export function initializeDatabase(): void {
     try { db.exec(`ALTER TABLE campaigns ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
   }
 
+  // ── webhook_events ────────────────────────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS webhook_events (
+      id          TEXT PRIMARY KEY,
+      event_type  TEXT NOT NULL,
+      payload     TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      processed   INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_webhook_events_type ON webhook_events(event_type);
+    CREATE INDEX IF NOT EXISTS idx_webhook_events_received ON webhook_events(received_at);
+    CREATE INDEX IF NOT EXISTS idx_webhook_events_processed ON webhook_events(processed);
+  `);
+
   console.log('Database initialized successfully');
 }

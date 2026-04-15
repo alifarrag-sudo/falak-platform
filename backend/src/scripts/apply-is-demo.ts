@@ -19,6 +19,16 @@ async function main() {
   });
 
   const sql = `
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id          TEXT PRIMARY KEY,
+  event_type  TEXT NOT NULL,
+  payload     TEXT NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processed   INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_type      ON webhook_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_received  ON webhook_events(received_at);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_processed ON webhook_events(processed);
 DO $$ BEGIN ALTER TABLE influencers   ADD COLUMN is_demo INTEGER DEFAULT 0; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE users         ADD COLUMN is_demo INTEGER DEFAULT 0; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE campaigns     ADD COLUMN is_demo INTEGER DEFAULT 0; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
